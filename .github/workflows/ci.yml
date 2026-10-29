@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build Golan
+        run: dotnet build src/GDM/GDM.csproj -c Release -nologo
+
+      - name: Browser extension tests
+        run: node --test extension/tests/
+
+      - name: Engine tests (isolated, local test servers only)
+        shell: pwsh
+        working-directory: tests/engine
+        run: |
+          dotnet build EngineTest.csproj -c Release -o bin -nologo
+          $server = Start-Process python -ArgumentList '-I','testserver.py','served','18971' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+          try {
+            dotnet bin/EngineTest.dll served out 18971
+            if ($LASTEXITCODE -ne 0) { throw "engine tests failed ($LASTEXITCODE)" }
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }
