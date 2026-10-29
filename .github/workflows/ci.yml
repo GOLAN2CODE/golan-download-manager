@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: GDM   # the tests expect the repository in a folder named GDM
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -33,14 +35,16 @@ jobs:
           python-version: "3.12"
 
       - name: Build Golan
+        working-directory: GDM
         run: dotnet build src/GDM/GDM.csproj -c Release -nologo
 
       - name: Browser extension tests
+        working-directory: GDM
         run: node --test extension/tests/
 
       - name: Engine tests (isolated, local test servers only)
         shell: pwsh
-        working-directory: tests/engine
+        working-directory: GDM/tests/engine
         run: |
           dotnet build EngineTest.csproj -c Release -o bin -nologo
           $server = Start-Process python -ArgumentList '-I','testserver.py','served','18971' -PassThru -WindowStyle Hidden
