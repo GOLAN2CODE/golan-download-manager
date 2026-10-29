@@ -20,6 +20,13 @@ public sealed partial class DownloadManager
     {
         public required CancellationTokenSource Cts;
         public Task? Task;
+
+        /// <summary>Stops the run; a run that ended at the same moment (source already disposed) needs nothing.</summary>
+        public void Cancel()
+        {
+            try { Cts.Cancel(); }
+            catch (ObjectDisposedException) { /* finished meanwhile */ }
+        }
     }
 
     readonly object _stateLock = new();
@@ -252,7 +259,7 @@ public sealed partial class DownloadManager
         if (run != null)
         {
             item.StoppedByUser = true;
-            run.Cts.Cancel();
+            run.Cancel();
         }
         else if (item.Status == DownloadStatus.Queued) item.Status = DownloadStatus.Paused;
         else if (item.Status == DownloadStatus.Paused && item.RetryCount > 0)
@@ -292,7 +299,7 @@ public sealed partial class DownloadManager
         if (run != null)
         {
             item.StoppedByUser = true;
-            run.Cts.Cancel();
+            run.Cancel();
             if (run.Task != null)
             {
                 try { await run.Task; }
@@ -335,7 +342,7 @@ public sealed partial class DownloadManager
         if (run != null)
         {
             item.StoppedByUser = true;
-            run.Cts.Cancel();
+            run.Cancel();
             if (run.Task != null)
             {
                 try { await run.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
@@ -415,7 +422,7 @@ public sealed partial class DownloadManager
         {
             wasRunning = true;
             item.StoppedByUser = true;
-            run.Cts.Cancel();
+            run.Cancel();
             if (run.Task != null)
             {
                 try { await run.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
