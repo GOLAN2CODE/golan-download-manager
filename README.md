@@ -1,6 +1,10 @@
-﻿# جولان — مدير التنزيل (Golan Download Manager — GDM)
+# جولان — مدير التنزيل (Golan Download Manager — GDM)
 
-**الإصدار 2.2.0** · تطبيق سطح مكتب لنظام ويندوز 10/11 مبني على **.NET 10 (WPF)** مع إضافة متصفح متكاملة (Manifest V3) لمتصفحات كروميوم وفايرفوكس.
+[![Download](https://img.shields.io/github/v/release/dark9guna/golan-download-manager-releases?label=%D8%AA%D9%86%D8%B2%D9%8A%D9%84%20%2F%20Download&color=FDD103&labelColor=111111)](https://github.com/dark9guna/golan-download-manager-releases/releases/latest)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows)
+
+**الإصدار 2.5.0** · تطبيق سطح مكتب لنظام ويندوز 10/11 مبني على **.NET 10 (WPF)** مع إضافة متصفح متكاملة (Manifest V3) لمتصفحات كروميوم وفايرفوكس.
 
 ---
 
@@ -169,3 +173,14 @@ powershell -ExecutionPolicy Bypass -File GDM/tests/smoke.ps1
 - يظهر للمستخدم «رمز الجهاز» في «المساعدة ← التفعيل»؛ يرسل اسمه وهذا الرمز إلى صاحب البرنامج.
 - يُصدر صاحب البرنامج المفتاح من «مولّد تراخيص جولان» (`GDMLicenseGenerator.exe`، لا يُوزَّع مع البرنامج): الاسم + رمز الجهاز + المدة (شهر، 3 أشهر، 6 أشهر، سنة، مدى الحياة، أو تاريخ محدد).
 - المفتاح موقّع رقميًا ومربوط بالجهاز؛ لا يعمل على جهاز آخر، ولا يمكن تعديل اسمه أو تاريخه. مفتاح التوقيع السري محفوظ مشفّرًا في `%USERPROFILE%\.golan-keys` على جهاز صاحب البرنامج فقط؛ احفظ له نسخة احتياطية من داخل المولّد.
+
+---
+
+## الرخصة · License
+
+جولان برنامج حر ومفتوح المصدر بموجب **رخصة جنو العمومية الإصدار ٣** ([GPL-3.0](LICENSE)). يحق لك استخدامه ودراسته وتعديله وإعادة نشره، بشرط أن تنشر أي نسخة معدّلة بالرخصة نفسها ومع كودها المصدري.
+النسخة الجاهزة الرسمية متاحة من [صفحة الإصدارات](https://github.com/dark9guna/golan-download-manager-releases/releases/latest)، وتشمل تجربة ٣٠ يومًا ثم مفتاح تفعيل يدعم استمرار التطوير.
+
+Golan is free software under the **GNU General Public License v3** ([GPL-3.0](LICENSE)): use, study, modify and share it, provided modified versions are released under the same licence with their source. Official builds are on the [releases page](https://github.com/dark9guna/golan-download-manager-releases/releases/latest) (30-day trial, then an activation key that funds development).
+
+Copyright © 2026 Khalid ([@dark9guna](https://github.com/dark9guna)). Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
