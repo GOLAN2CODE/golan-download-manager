@@ -33,7 +33,7 @@ powershell -ExecutionPolicy Bypass -File tools/pack-extension.ps1
    - **الغرض الوحيد (Single Purpose):** التكامل مع برنامج «جولان — مدير التنزيل» المحلي على نظام ويندوز (`com.golan.gdm`) لالتقاط التنزيلات وروابط الوسائط من المتصفح.
    - **مبرّرات الصلاحيات (Permission Justifications):** انسخ مبرّرات كل صلاحية (`nativeMessaging`، `downloads`، `contextMenus`، `cookies`، `storage`، `webRequest`، `tabs`، `scripting`، `notifications`، `host_permissions`) من جدول `store/permissions.md`.
    - **استخدام الكود البعيد (Remote Code):** اختر **لا، أنا لا أستخدم كوداً بعيداً (No, I am not using Remote code)**.
-   - **الإفصاح عن جمع البيانات:** أعلن عن عدم جمع أو نقل أي بيانات خارج جهاز المستخدم، وأضف رابط سياسة الخصوصية من `store/privacy-policy.ar.md` و`store/privacy-policy.en.md`.
+   - **الإفصاح عن جمع البيانات:** أعلن عن عدم جمع أو نقل أي بيانات خارج جهاز المستخدم، وضع رابط سياسة الخصوصية العلني: `https://github.com/dark9guna/golan-download-manager/blob/main/store/privacy-policy.en.md` (والعربية: `https://github.com/dark9guna/golan-download-manager/blob/main/store/privacy-policy.ar.md`).
 5. **ملاحظات للمراجعين (Reviewer Notes):**
    وضّح للمراجع أن الإضافة هي أداة مرافقة لتطبيق سطح المكتب **Golan Download Manager (`GDM.exe`)** على ويندوز عبر بروتوكول المراسلة الأصلية `com.golan.gdm`، وأنها في حال عدم وجود التطبيق المحلي تترك التنزيلات للمتصفح بشكل طبيعي دون أي خطأ.
 6. **تثبيت معرّف الإضافة (`ExtensionId`):**
