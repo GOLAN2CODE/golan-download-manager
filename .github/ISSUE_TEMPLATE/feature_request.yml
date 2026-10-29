@@ -1,0 +1,16 @@
+name: "✨ اقتراح · Feature request"
+description: "فكرة لتحسين جولان · An idea to improve Golan"
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: "ما المشكلة التي يحلها الاقتراح؟ · What problem does it solve?"
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: "الحل المقترح · Proposed solution"
+    validations:
+      required: true

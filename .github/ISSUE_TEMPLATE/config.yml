@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "🔒 ثغرة أمنية · Security vulnerability"
+    url: https://github.com/dark9guna/golan-download-manager/security/advisories/new
+    about: "أبلغ بشكل خاص · Report privately"
+  - name: "⬇️ تنزيل جولان · Download Golan"
+    url: https://github.com/dark9guna/golan-download-manager-releases/releases/latest
+    about: "آخر إصدار رسمي · Latest official release"

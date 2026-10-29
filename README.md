@@ -1,6 +1,7 @@
 # جولان — مدير التنزيل (Golan Download Manager — GDM)
 
 [![Download](https://img.shields.io/github/v/release/dark9guna/golan-download-manager-releases?label=%D8%AA%D9%86%D8%B2%D9%8A%D9%84%20%2F%20Download&color=FDD103&labelColor=111111)](https://github.com/dark9guna/golan-download-manager-releases/releases/latest)
+[![CI](https://github.com/dark9guna/golan-download-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/dark9guna/golan-download-manager/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows)
 

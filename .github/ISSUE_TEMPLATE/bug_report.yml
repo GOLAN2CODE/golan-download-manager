@@ -1,0 +1,44 @@
+name: "🐞 مشكلة · Bug report"
+description: "شيء لا يعمل كما يجب · Something does not work as expected"
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: "ماذا حدث؟ · What happened?"
+      description: "ما الذي توقعته، وما الذي حدث فعلًا · What you expected and what happened instead"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "خطوات إعادة المشكلة · Steps to reproduce"
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: "نسخة جولان · Golan version"
+      description: "من المساعدة ← حول · Help ▸ About"
+      placeholder: "2.5.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: windows
+    attributes:
+      label: "ويندوز · Windows"
+      options: ["Windows 11", "Windows 10"]
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: "المتصفح (إن كانت المشكلة فيه) · Browser, if related"
+      placeholder: "Chrome 141 / Edge / Firefox ..."
+  - type: textarea
+    id: log
+    attributes:
+      label: "سطور من السجل · Log lines"
+      description: "من `%LOCALAPPDATA%\Golan\GDM\gdm.log`. احذف أي روابط خاصة أو بيانات دخول · remove private links or credentials"
+      render: text
