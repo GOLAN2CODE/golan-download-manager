@@ -62,7 +62,7 @@
   "win.options.remote.open_window": "فتح لوحة التحكم عن بعد وإدارة الأجهزة…",
   "win.options.updates.title": "التحديثات والتثبيت في النظام",
   "win.options.updates.note": "التحقق من توفر إصدارات جديدة وتثبيت برنامج جولان في حساب المستخدم الحالي.",
-  "win.options.updates.feed_url": "رابط قناة التحديثات (HTTPS JSON):",
+  "win.options.updates.feed_url": "رابط قناة تحديثات مخصّصة (اتركه فارغًا للقناة الرسمية):",
   "win.options.updates.last_check": "آخر فحص للتحديثات: {0}",
   "win.options.updates.never": "لم يتم الفحص بعد",
   "win.add.expected_hash": "البصمة المتوقعة (اختياري — مثل sha256:... أو نص البصمة):",
@@ -87,5 +87,6 @@
   "vb.magnet.consent.yes": "نعم، عيّن جولان",
   "vb.add.magnet_hint": "رابط مغناطيسي (سيتم جلب بيانات التورنت عند البدء)",
   "vb.space.free": "المساحة الحرة: {0}",
-  "common.yes": "نعم"
+  "common.yes": "نعم",
+  "win.options.updates.auto": "التحقق من التحديثات تلقائيًا مرة في اليوم (من صفحة الإصدارات الرسمية)"
 }

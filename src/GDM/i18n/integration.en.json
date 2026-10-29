@@ -62,7 +62,7 @@
   "win.options.remote.open_window": "Open Remote Control & Device Pairing…",
   "win.options.updates.title": "Updates & System Installation",
   "win.options.updates.note": "Check for new releases and manage user-level installation.",
-  "win.options.updates.feed_url": "Update feed URL (HTTPS JSON):",
+  "win.options.updates.feed_url": "Custom update feed URL (leave empty for the official feed):",
   "win.options.updates.last_check": "Last update check: {0}",
   "win.options.updates.never": "Never",
   "win.add.expected_hash": "Expected hash (optional — e.g. sha256:... or hex digest):",
@@ -87,5 +87,6 @@
   "vb.magnet.consent.yes": "Yes, Register",
   "vb.add.magnet_hint": "Magnet link (torrent metadata will be fetched on start)",
   "vb.space.free": "Free space: {0}",
-  "common.yes": "Yes"
+  "common.yes": "Yes",
+  "win.options.updates.auto": "Check for updates automatically once a day (official releases page)"
 }

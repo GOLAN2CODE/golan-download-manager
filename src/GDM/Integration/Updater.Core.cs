@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -238,11 +238,22 @@ public static partial class Updater
         return false;
     }
 
+    /// <summary>Published with every release next to the installer (see installer/build-setup.ps1).</summary>
+    public const string OfficialFeedUrl = "https://github.com/dark9guna/golan-download-manager-releases/releases/latest/download/update.json";
+
+    /// <summary>The feed to use: none when checks are off, the user's own feed if set, otherwise the official one.</summary>
+    public static string EffectiveFeedUrl(AppSettings? settings)
+    {
+        if (settings == null || !settings.CheckForUpdates) return "";
+        return string.IsNullOrWhiteSpace(settings.UpdateFeedUrl) ? OfficialFeedUrl : settings.UpdateFeedUrl.Trim();
+    }
+
     public static bool ShouldCheckNow(AppSettings settings, DateTime nowUtc, bool isPortable = false)
     {
         if (isPortable || settings == null) return false;
-        if (string.IsNullOrWhiteSpace(settings.UpdateFeedUrl)) return false;
-        if (!Uri.TryCreate(settings.UpdateFeedUrl.Trim(), UriKind.Absolute, out var uri)
+        var feedUrl = EffectiveFeedUrl(settings);
+        if (string.IsNullOrWhiteSpace(feedUrl)) return false;
+        if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var uri)
             || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
             return false;
 

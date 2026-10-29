@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -891,6 +891,11 @@ public static class Tests_V1
         var s = new AppSettings();
         Check("V1-Settings: KeepSystemAwake defaults to true, KeepDisplayOn false, UpdateFeedUrl empty",
             s.KeepSystemAwake && !s.KeepDisplayOn && s.UpdateFeedUrl == "" && s.LastUpdateCheck == null);
+        Check("Updates: on by default from the official feed; a custom feed wins; switching off means no feed",
+            s.CheckForUpdates && Updater.EffectiveFeedUrl(s) == Updater.OfficialFeedUrl
+            && Updater.EffectiveFeedUrl(new AppSettings { UpdateFeedUrl = " https://example.com/f.json " }) == "https://example.com/f.json"
+            && Updater.EffectiveFeedUrl(new AppSettings { CheckForUpdates = false }) == ""
+            && Updater.OfficialFeedUrl.StartsWith("https://github.com/dark9guna/", StringComparison.Ordinal));
 
         var repoRoot = FindRepoRoot();
         var i18nDir = Path.Combine(repoRoot, "GDM", "src", "GDM", "i18n");

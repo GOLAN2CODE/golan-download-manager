@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using Golan.Gdm.Core;
 
@@ -56,6 +56,7 @@ public partial class OptionsWindow
         checkNowBtn.Click += async (_, _) =>
         {
             _manager.Settings.UpdateFeedUrl = _working.UpdateFeedUrl.Trim();
+            _manager.Settings.CheckForUpdates = _working.CheckForUpdates;
             if (App.Instance != null)
                 await App.Instance.CheckForUpdatesAsync(interactive: true, owner: this);
         };
@@ -69,6 +70,7 @@ public partial class OptionsWindow
         installBtn.Click += (_, _) => App.Instance?.RunUserInstall(this);
 
         p.Children.Add(Card(
+            Check(Loc.T("win.options.updates.auto"), () => _working.CheckForUpdates, v => _working.CheckForUpdates = v),
             Label(Loc.T($"win.options.updates.feed_url")),
             Text(_working.UpdateFeedUrl, v => _working.UpdateFeedUrl = v, true),
             lastCheckLabel,

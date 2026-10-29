@@ -1,5 +1,9 @@
 # سجل التغييرات · Changelog
 
+## 2.5.1 — 2026-10-29
+- تحديث تلقائي: يتحقق جولان مرة في اليوم من صفحة الإصدارات الرسمية ويحدّث نفسه بعد التحقق من البصمة، ويمكن إطفاؤه من الخيارات · Automatic updates from the official releases page (SHA-256 verified), can be turned off in Options.
+- إصلاح: الإيقاف المؤقت في نفس لحظة انتهاء التنزيل لم يعد يسبب خطأ · Fix: pausing at the moment a download ends no longer throws.
+
 ## 2.5.0 — 2026-10-29
 - التقاط التنزيل من المتصفح فورًا قبل أن يبدأه المتصفح، عبر اتصال دائم مع الإضافة · Browser downloads are taken before the browser shows them, over one open native port.
 - تعامل ذكي مع المواقع المحمية (Cloudflare): اتصالات أقل للملفات الصغيرة، وانتظار تلقائي ثم متابعة · Smarter with rate-limited sites: fewer connections for small files, automatic wait-and-continue.

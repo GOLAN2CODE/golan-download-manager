@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -163,7 +163,9 @@ public static partial class Updater
         if (!force && !ShouldCheckNow(settings, DateTime.UtcNow, AppPaths.IsPortable))
             return null;
 
-        var feedUrl = settings.UpdateFeedUrl?.Trim() ?? "";
+        var feedUrl = force && !settings.CheckForUpdates
+            ? (string.IsNullOrWhiteSpace(settings.UpdateFeedUrl) ? OfficialFeedUrl : settings.UpdateFeedUrl.Trim())
+            : EffectiveFeedUrl(settings);
         if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var uri)
             || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {

@@ -13,7 +13,7 @@ namespace Golan.Gdm;
 public partial class App : Application
 {
     public static App Instance => (App)Current;
-    public const string Version = "2.5.0";
+    public const string Version = "2.5.1";
 
     public bool StartHidden { get; init; }
     public string? StartUrl { get; init; }
@@ -134,7 +134,8 @@ public partial class App : Application
         if (!string.IsNullOrWhiteSpace(StartTorrentPath))
             _ = OpenTorrentFileAsync(StartTorrentPath, MainView);
 
-        if (Updater.ShouldCheckNow(Settings, DateTime.UtcNow, AppPaths.IsPortable))
+        // Isolated runs (tests) never reach out to the internet on their own.
+        if (!AppPaths.IsIsolated && Updater.ShouldCheckNow(Settings, DateTime.UtcNow, AppPaths.IsPortable))
             _ = CheckForUpdatesAsync(interactive: false, owner: MainView);
 
         if (!Core.Licensing.LicenseGate.CanDownload && !StartHidden)
@@ -539,12 +540,6 @@ public partial class App : Application
 
     public async Task CheckForUpdatesAsync(bool interactive, Window? owner = null)
     {
-        if (interactive && string.IsNullOrWhiteSpace(Settings.UpdateFeedUrl))
-        {
-            Confirm.Info(owner ?? MainView, Loc.T($"main.menu.checkUpdates"), Loc.T($"vb.update.no_feed"));
-            return;
-        }
-
         var feed = await Updater.CheckForUpdateAsync(Settings, force: interactive);
         if (feed == null)
         {

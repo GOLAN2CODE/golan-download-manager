@@ -3,7 +3,7 @@
 ; (GDM\installer\build-setup.ps1 does both). Per-user install, no administrator rights.
 
 #define AppName "Golan"
-#define AppVersion "2.5.0"
+#define AppVersion "2.5.1"
 #define AppExe "GDM.exe"
 
 [Setup]
