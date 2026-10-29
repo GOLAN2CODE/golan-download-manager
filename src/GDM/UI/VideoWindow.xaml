@@ -1,0 +1,284 @@
+﻿<Window x:Class="Golan.Gdm.UI.VideoWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="clr-namespace:Golan.Gdm.Core"
+        xmlns:v2="clr-namespace:Golan.Gdm.Core"
+        Title="{core:T win.video.title}" Width="640" Height="680" MinWidth="560"
+        WindowStartupLocation="CenterScreen" Style="{StaticResource GdmWindow}"
+        Icon="/Assets/gdm.ico" Loaded="Window_Loaded" Closing="Window_Closing">
+    <Window.Resources>
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+        <Style x:Key="QualityItem" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="item" Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Line}"
+                                BorderThickness="1" CornerRadius="8" Padding="11,9">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="item" Property="Background" Value="{DynamicResource AccentSoft}"/>
+                                <Setter TargetName="item" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="item" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <DataTemplate x:Key="QualityTemplate">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="&#xE8D6;" FontFamily="{StaticResource IconFont}" FontSize="16"
+                           Foreground="{DynamicResource AccentText}" FlowDirection="LeftToRight"
+                           VerticalAlignment="Center" Margin="0,0,8,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding AudioOnly}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}" FontWeight="Medium"
+                               HorizontalAlignment="Left" FlowDirection="{Binding Label, Converter={StaticResource TextDir}}"/>
+                    <TextBlock Text="{Binding Key}" Foreground="{DynamicResource Muted}" FontSize="10"
+                               Visibility="Collapsed"/>
+                </StackPanel>
+                <TextBlock Grid.Column="2" Text="{Binding SizeText}" Foreground="{DynamicResource Muted}"
+                           VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="DirectTemplate">
+            <Grid Margin="0,0,0,7">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="26"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="&#xE714;" FontFamily="{StaticResource IconFont}" FontSize="15"
+                           Foreground="{DynamicResource AccentText}" FlowDirection="LeftToRight" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1" Margin="7,0,7,0">
+                    <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Media.Url}" HorizontalAlignment="Left" FlowDirection="{Binding FileName, Converter={StaticResource TextDir}}"/>
+                    <TextBlock Text="{Binding Details}" Foreground="{DynamicResource Muted}" FontSize="11"
+                               TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <Button Grid.Column="2" Content="{core:T win.video.direct_download}" Padding="10,4" Click="DirectDownload_Click"
+                        AutomationProperties.Name="{core:T win.video.direct_download_aria}"/>
+            </Grid>
+        </DataTemplate>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}"
+                BorderThickness="0,1,0,0" Padding="16,11">
+            <StackPanel>
+            <CheckBox x:Name="SmartModeBox" Content="{core:T video.smart.checkbox}" ToolTip="{core:T video.smart.tooltip}" Margin="0,0,0,10"
+                      HorizontalAlignment="Left" AutomationProperties.AutomationId="SmartModeBox"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                <Button x:Name="DownloadButton" Style="{StaticResource Primary}" Content="{core:T win.video.download_now}" Click="Download_Click"
+                        IsEnabled="False" AutomationProperties.Name="{core:T win.video.download_now_aria}"/>
+                <Button x:Name="QueueButton" Content="{core:T win.video.download_later}" Margin="8,0,0,0" Click="Queue_Click"
+                        IsEnabled="False" AutomationProperties.Name="{core:T win.video.download_later_aria}"/>
+                <Button Content="{core:T win.video.cancel}" Margin="8,0,0,0" Click="Cancel_Click" AutomationProperties.Name="{core:T win.video.cancel}"/>
+            </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="20,18">
+            <StackPanel>
+                <TextBlock Text="{core:T win.video.header}" FontSize="22" FontWeight="Bold"/>
+                <TextBlock Text="{core:T win.video.subtitle}" Foreground="{DynamicResource Muted}" Margin="0,3,0,16"/>
+
+                <Grid Margin="0,0,0,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="UrlBox" Grid.Column="0" FlowDirection="LeftToRight" Tag="{core:T win.video.url_tag}"
+                             VerticalContentAlignment="Center" KeyDown="UrlBox_KeyDown"
+                             AutomationProperties.Name="{core:T win.video.url_aria}"/>
+                    <Button Grid.Column="1" Content="{core:T win.video.fetch}" Margin="8,0,0,0" Click="Fetch_Click"
+                             AutomationProperties.Name="{core:T win.video.fetch_aria}"/>
+                </Grid>
+
+                <Border x:Name="ToolCard" Style="{StaticResource Card}" Visibility="Collapsed" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="{core:T win.video.first_time_tools}" FontWeight="SemiBold"/>
+                        <ProgressBar x:Name="ToolProgress" Margin="0,12,0,7" Minimum="0" Maximum="100"/>
+                        <TextBlock x:Name="ToolStatus" Text="{core:T win.video.preparing_tools}" Foreground="{DynamicResource Muted}"/>
+                    </StackPanel>
+                </Border>
+                <Border x:Name="LoadingCard" Style="{StaticResource Card}" Visibility="Collapsed" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="{core:T win.video.loading_info}" FontWeight="SemiBold"/>
+                        <ProgressBar IsIndeterminate="True" Margin="0,12,0,0"/>
+                    </StackPanel>
+                </Border>
+                <Border x:Name="ErrorCard" Background="{DynamicResource DangerSoft}" BorderBrush="{DynamicResource DangerBorder}" BorderThickness="1"
+                        CornerRadius="12" Padding="14" Visibility="Collapsed" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="{core:T win.video.error_title}" Foreground="{DynamicResource Danger}" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="ErrorText" Foreground="{DynamicResource DangerInk}" TextWrapping="Wrap" Margin="0,6,0,9"/>
+                        <TextBlock x:Name="DirectHint" Text="{core:T win.video.direct_hint}"
+                                   Foreground="{DynamicResource DangerInk}" Visibility="Collapsed" Margin="0,0,0,9"/>
+                        <Button x:Name="RetryButton" Content="{core:T win.video.retry}" HorizontalAlignment="Left"
+                                Click="Fetch_Click"/>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="ResultCard" Style="{StaticResource Card}" Visibility="Collapsed" Margin="0,0,0,12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="190"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="ThumbnailFrame" Grid.Column="0" Height="108" Background="{DynamicResource AccentSoft}"
+                                CornerRadius="9">
+                            <Border.Clip>
+                                <RectangleGeometry Rect="0,0,190,108" RadiusX="9" RadiusY="9"/>
+                            </Border.Clip>
+                            <Grid>
+                                <Image x:Name="Thumbnail" Stretch="UniformToFill" Visibility="Collapsed"/>
+                                <TextBlock x:Name="ThumbnailPlaceholder" Text="&#xE714;" FontFamily="{StaticResource IconFont}"
+                                           FontSize="29" Foreground="{DynamicResource AccentText}" HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" FlowDirection="LeftToRight"/>
+                            </Grid>
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                            <TextBlock x:Name="TitleText" FontSize="16" FontWeight="Bold" TextWrapping="Wrap"
+                                       MaxHeight="46" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock x:Name="MetaText" Foreground="{DynamicResource Muted}" Margin="0,7,0,0"
+                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <StackPanel x:Name="ContentPanel" Visibility="Collapsed">
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="{core:T win.video.choose_quality}" Style="{StaticResource SectionTitle}"/>
+                            <ListBox x:Name="QualityList" BorderThickness="0" Background="Transparent"
+                                     ItemContainerStyle="{StaticResource QualityItem}" ItemTemplate="{StaticResource QualityTemplate}"
+                                     SelectionChanged="QualityList_SelectionChanged" AutomationProperties.Name="{core:T win.video.quality_aria}"/>
+                            <StackPanel x:Name="Mp3BitratePanel" Orientation="Horizontal" Visibility="Collapsed" Margin="0,8,0,0">
+                                <TextBlock Text="{v2:T video.mp3_bitrate}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="Mp3BitrateBox" Width="130" SelectedIndex="1">
+                                    <ComboBoxItem Tag="128" Content="{v2:T video.mp3_128}"/>
+                                    <ComboBoxItem Tag="192" Content="{v2:T video.mp3_192}"/>
+                                    <ComboBoxItem Tag="320" Content="{v2:T video.mp3_320}"/>
+                                </ComboBox>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="PlaylistCard" Style="{StaticResource Card}" Visibility="Collapsed" Margin="0,0,0,12">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,8">
+                                <TextBlock Text="{core:T win.video.playlist_header}" Style="{StaticResource SectionTitle}" Margin="0"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                    <Button Content="{core:T win.video.select_all}" Padding="8,4" Click="SelectAll_Click"/>
+                                    <Button Content="{core:T win.video.select_none}" Padding="8,4" Margin="6,0,0,0" Click="SelectNone_Click"/>
+                                </StackPanel>
+                            </DockPanel>
+                            <WrapPanel Margin="0,0,0,8" VerticalAlignment="Center">
+                                <TextBlock Text="{v2:T video.playlist_from}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBox x:Name="PlaylistFromBox" Width="56" FlowDirection="LeftToRight" Margin="0,0,10,0" TextChanged="PlaylistRange_TextChanged"/>
+                                <TextBlock Text="{v2:T video.playlist_to}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBox x:Name="PlaylistToBox" Width="56" FlowDirection="LeftToRight" Margin="0,0,12,0" TextChanged="PlaylistRange_TextChanged"/>
+                                <TextBlock Text="{v2:T video.playlist_range}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBox x:Name="PlaylistItemsBox" Width="110" FlowDirection="LeftToRight" Tag="{v2:T video.playlist_items_tag}" ToolTip="{v2:T video.playlist_items_tag}" TextChanged="PlaylistRange_TextChanged"/>
+                            </WrapPanel>
+                            <TextBlock x:Name="PlaylistCount" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+                            <ListBox x:Name="PlaylistList" MaxHeight="210" BorderThickness="0" Background="Transparent">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding Selected, Mode=TwoWay}" Margin="0,3" Click="PlaylistCheck_Click">
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding DurationText}" DockPanel.Dock="Left" Foreground="{DynamicResource Muted}" Margin="10,0,8,0"/>
+                                                <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}"
+                                                           FlowDirection="{Binding Title, Converter={StaticResource TextDir}}"/>
+                                            </DockPanel>
+                                        </CheckBox>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="ExtrasCard" Style="{StaticResource Card}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="{v2:T video.subtitles}" Style="{StaticResource SectionTitle}"/>
+                            <WrapPanel Margin="0,0,0,8">
+                                <CheckBox x:Name="WriteSubsBox" Content="{v2:T video.sub_write}" Margin="0,0,14,6"/>
+                                <CheckBox x:Name="EmbedSubsBox" Content="{v2:T video.sub_embed}" Margin="0,0,14,6"/>
+                                <CheckBox x:Name="IncludeAutoSubsBox" Content="{v2:T video.sub_auto}" Margin="0,0,14,6" Click="IncludeAutoSubs_Click"/>
+                                <CheckBox x:Name="ConvertSubsToSrtBox" Content="{v2:T video.sub_srt}" IsChecked="True" Margin="0,0,0,6"/>
+                            </WrapPanel>
+                            <ListBox x:Name="SubtitleList" MaxHeight="120" BorderThickness="1" BorderBrush="{DynamicResource Line}"
+                                     Background="{DynamicResource SurfaceAlt}" Margin="0,0,0,12" Visibility="Collapsed">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding Selected, Mode=TwoWay}" Content="{Binding DisplayLabel}" Margin="0,2"/>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <WrapPanel>
+                                <CheckBox x:Name="WriteThumbnailBox" Content="{v2:T video.thumb_write}" Margin="0,0,14,6"/>
+                                <CheckBox x:Name="EmbedThumbnailBox" Content="{v2:T video.thumb_embed}" Margin="0,0,14,6"/>
+                                <CheckBox x:Name="EmbedChaptersBox" Content="{v2:T video.chapters_embed}" Margin="0,0,14,6"/>
+                                <CheckBox x:Name="SplitChaptersBox" Content="{v2:T video.chapters_split}" Margin="0,0,14,6"/>
+                                <CheckBox x:Name="EmbedMetadataBox" Content="{v2:T video.metadata_embed}" Margin="0,0,0,6"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="{core:T win.video.save_where}" Style="{StaticResource SectionTitle}"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="FolderBox" Grid.Column="0" FlowDirection="LeftToRight"
+                                         TextChanged="FolderBox_TextChanged" AutomationProperties.Name="{core:T win.video.save_folder_aria}"/>
+                                <Button Grid.Column="1" Content="{core:T win.video.browse}" Margin="8,0,0,0" Click="Browse_Click"
+                                        AutomationProperties.Name="{core:T win.video.browse_aria}"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Expander x:Name="DirectExpander" Visibility="Collapsed" IsExpanded="False" Margin="0,0,0,12">
+                        <Expander.Header>
+                            <TextBlock x:Name="DirectHeader" FontWeight="SemiBold"/>
+                        </Expander.Header>
+                        <Border Style="{StaticResource Card}" Padding="14" Margin="0,7,0,0">
+                            <ItemsControl x:Name="DirectList" ItemTemplate="{StaticResource DirectTemplate}"/>
+                        </Border>
+                    </Expander>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

@@ -1,0 +1,21 @@
+<Window x:Class="Golan.Gdm.UI.QueuePickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="clr-namespace:Golan.Gdm.Core"
+        Title="{core:T win.queuepicker.title}" Width="430" Height="270" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" Style="{StaticResource GdmWindow}" Icon="/Assets/gdm.ico">
+    <StackPanel Margin="24">
+        <TextBlock x:Name="TitleText" FontSize="17" FontWeight="SemiBold"/>
+        <TextBlock Text="{core:T win.queuepicker.subtitle}" Foreground="{DynamicResource Muted}" Margin="0,5,0,14"/>
+        <DockPanel>
+            <Button DockPanel.Dock="Left" Content="+" Width="34" Click="NewQueue_Click" AutomationProperties.Name="{core:T win.queuepicker.new_queue}"/>
+            <ComboBox x:Name="QueueBox" DisplayMemberPath="Name" Margin="0,0,8,0"/>
+        </DockPanel>
+        <CheckBox x:Name="StartBox" Content="{core:T win.queuepicker.start_now}" Margin="0,14,0,0"/>
+        <CheckBox x:Name="DontAskBox" Content="{core:T win.queuepicker.dont_ask}" Margin="0,2,0,0"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,18,0,0">
+            <Button Content="{core:T win.queuepicker.ok}" Style="{StaticResource Primary}" IsDefault="True" Click="Ok_Click" Padding="20,7"/>
+            <Button Content="{core:T win.queuepicker.cancel}" IsCancel="True" Click="Cancel_Click" Padding="20,7" Margin="8,0,0,0"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

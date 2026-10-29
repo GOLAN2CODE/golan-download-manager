@@ -1,0 +1,60 @@
+{
+  "id": "abc123xyz",
+  "title": "Sample Lecture",
+  "thumbnail": "https://i.ytimg.com/vi/abc/maxresdefault.jpg",
+  "duration": 615.0,
+  "uploader": "OpenCourseWare",
+  "webpage_url": "https://www.youtube.com/watch?v=abc123xyz",
+  "extractor_key": "Youtube",
+  "formats": [
+    {
+      "format_id": "140",
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2",
+      "abr": 128.0,
+      "filesize": 9840000
+    },
+    {
+      "format_id": "136",
+      "ext": "mp4",
+      "vcodec": "avc1.4d401f",
+      "acodec": "none",
+      "height": 720,
+      "fps": 30.0,
+      "tbr": 1500.0,
+      "filesize": 115312500
+    },
+    {
+      "format_id": "137",
+      "ext": "mp4",
+      "vcodec": "avc1.640028",
+      "acodec": "none",
+      "height": 1080,
+      "fps": 60.0,
+      "tbr": 3200.0,
+      "filesize": 246000000
+    }
+  ],
+  "subtitles": {
+    "ar": [
+      { "ext": "vtt", "name": "العربية", "url": "https://example.com/subs/ar.vtt" }
+    ],
+    "en": [
+      { "ext": "vtt", "name": "English", "url": "https://example.com/subs/en.vtt" }
+    ]
+  },
+  "automatic_captions": {
+    "fr": [
+      { "ext": "vtt", "name": "French (auto-generated)", "url": "https://example.com/subs/fr.vtt" }
+    ],
+    "en": [
+      { "ext": "vtt", "name": "English (auto-generated)", "url": "https://example.com/subs/en-auto.vtt" }
+    ]
+  },
+  "chapters": [
+    { "title": "Introduction", "start_time": 0.0, "end_time": 120.5 },
+    { "title": "Core Concepts", "start_time": 120.5, "end_time": 480.0 },
+    { "title": "Summary", "start_time": 480.0, "end_time": 615.0 }
+  ]
+}

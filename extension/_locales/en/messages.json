@@ -1,0 +1,152 @@
+{
+  "extName": {
+    "message": "Golan Download Manager"
+  },
+  "extDescription": {
+    "message": "Intercepts browser downloads for Golan Download Manager and downloads videos from YouTube and over a thousand sites."
+  },
+  "appShortName": {
+    "message": "Golan"
+  },
+  "appSubtitle": {
+    "message": "Download Manager"
+  },
+  "statusChecking": {
+    "message": "Checking…"
+  },
+  "statusConnected": {
+    "message": "Connected"
+  },
+  "statusOffline": {
+    "message": "Golan is not running"
+  },
+  "popupOfflineBanner": {
+    "message": "Golan is not running — start the application and try again."
+  },
+  "popupInterceptTitle": {
+    "message": "Capture downloads from browser"
+  },
+  "popupInterceptDesc": {
+    "message": "Send downloaded files to Golan instead of the browser"
+  },
+  "popupDownloadPageVideo": {
+    "message": "Download video from this page"
+  },
+  "popupVideoHint": {
+    "message": "Works with YouTube and over a thousand sites"
+  },
+  "popupDownloadAllLinks": {
+    "message": "Download all links"
+  },
+  "popupPageVideosTitle": {
+    "message": "Videos on this page"
+  },
+  "popupMediaEmpty": {
+    "message": "No videos detected yet. Play the video and reopen this menu."
+  },
+  "popupRestoreVideoBtn": {
+    "message": "Restore video download button on this site"
+  },
+  "btnDownload": {
+    "message": "Download"
+  },
+  "typeStream": {
+    "message": "STREAM"
+  },
+  "typeAudio": {
+    "message": "AUDIO"
+  },
+  "typeVideo": {
+    "message": "VIDEO"
+  },
+  "unitB": {
+    "message": "B"
+  },
+  "unitKB": {
+    "message": "KB"
+  },
+  "unitMB": {
+    "message": "MB"
+  },
+  "unitGB": {
+    "message": "GB"
+  },
+  "toastSentToGdm": {
+    "message": "Sent to Golan ✓"
+  },
+  "toastVideoSent": {
+    "message": "Video sent to Golan ✓"
+  },
+  "toastLinksCountSent": {
+    "message": "Sent $1 links to Golan ✓"
+  },
+  "toastLinksSent": {
+    "message": "Links sent to Golan ✓"
+  },
+  "toastInterceptOn": {
+    "message": "Download capture enabled"
+  },
+  "toastInterceptOff": {
+    "message": "Download capture disabled"
+  },
+  "toastButtonRestored": {
+    "message": "Button restored for this site"
+  },
+  "errNotRunning": {
+    "message": "Golan is not running. Please start the application and try again."
+  },
+  "errNotRunningShort": {
+    "message": "Golan is not running — please start the application"
+  },
+  "errGenericGdm": {
+    "message": "An error occurred in Golan."
+  },
+  "errRequestFailed": {
+    "message": "Golan could not process the request: $1"
+  },
+  "errGdmReply": {
+    "message": "Golan returned an error: $1"
+  },
+  "errTryAgain": {
+    "message": "Failed, please try again"
+  },
+  "errInvalidUrl": {
+    "message": "This link cannot be downloaded with Golan."
+  },
+  "errNothingToDownload": {
+    "message": "Nothing to download on this page."
+  },
+  "errCannotReadLinks": {
+    "message": "Cannot read links from this page."
+  },
+  "errReadLinksFailed": {
+    "message": "Failed to read links from this page."
+  },
+  "errNoLinksFound": {
+    "message": "No links found on this page."
+  },
+  "menuDownloadLink": {
+    "message": "Download with Golan"
+  },
+  "menuDownloadAll": {
+    "message": "Download all links with Golan"
+  },
+  "menuDownloadVideo": {
+    "message": "Download video from this page with Golan"
+  },
+  "menuDownloadImage": {
+    "message": "Download image with Golan"
+  },
+  "panelDownloadVideo": {
+    "message": "Download this video"
+  },
+  "panelHideOnSite": {
+    "message": "Hide button on this site"
+  },
+  "panelSending": {
+    "message": "Sending to Golan…"
+  },
+  "panelSent": {
+    "message": "Sent to Golan"
+  }
+}

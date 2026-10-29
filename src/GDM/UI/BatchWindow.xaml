@@ -1,0 +1,175 @@
+<Window x:Class="Golan.Gdm.UI.BatchWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Golan.Gdm.UI"
+        xmlns:core="clr-namespace:Golan.Gdm.Core"
+        Title="{core:T win.batch.title}" Height="600" Width="980"
+        WindowStartupLocation="CenterScreen" Style="{StaticResource GdmWindow}"
+        Icon="/Assets/gdm.ico">
+    <Window.Resources>
+        <local:CategoryGlyphConverter x:Key="CategoryGlyphConverter"/>
+        <local:CategoryNameConverter x:Key="CategoryNameConverter"/>
+        <local:BoolToVisibilityConverter x:Key="BoolToVis"/>
+    </Window.Resources>
+    <DockPanel>
+        <!-- Bottom bar -->
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}"
+                BorderThickness="0,1,0,0" Padding="16,12">
+            <DockPanel LastChildFill="False">
+                <Button x:Name="CancelBtn" DockPanel.Dock="Right" Content="{core:T win.batch.cancel}" Padding="20,8" Click="Cancel_Click" IsCancel="True"/>
+                <Button x:Name="AddToQueueBtn" DockPanel.Dock="Right" Content="{core:T win.batch.add_to_queue}" Padding="16,8"
+                        Margin="0,0,10,0" Click="AddToQueue_Click"/>
+                <Button x:Name="DownloadSelectedBtn" DockPanel.Dock="Right" Style="{StaticResource Primary}"
+                        Content="{core:T win.batch.download_selected}" Padding="20,8" Margin="0,0,10,0" Click="DownloadSelected_Click" IsDefault="True"/>
+                <TextBlock x:Name="CounterText" DockPanel.Dock="Left" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Muted}" FontSize="12"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Main content -->
+        <Grid Margin="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Paste mode header (visible when links empty) -->
+            <Border x:Name="PasteHeader" Grid.Row="0" Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Text="{core:T win.batch.paste_label}" Style="{StaticResource Label}"/>
+                    <TextBox x:Name="PasteBox" FlowDirection="LeftToRight" TextWrapping="Wrap" AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto" MinHeight="80" Margin="0,0,0,8"/>
+                    <DockPanel LastChildFill="False">
+                        <Button x:Name="PasteFromClipboardBtn" Content="{core:T win.batch.paste_clipboard}" Padding="14,6"
+                                Click="PasteFromClipboard_Click"/>
+                        <Button x:Name="ParseLinksBtn" Content="{core:T win.batch.parse_links}" Style="{StaticResource Primary}"
+                                Padding="14,6" Margin="8,0,0,0" Click="ParseLinks_Click"/>
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Filter bar -->
+            <Border x:Name="FilterBar" Grid.Row="0" Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="Collapsed">
+                <StackPanel>
+                    <DockPanel LastChildFill="True" Margin="0,0,0,8">
+                        <TextBlock Text="{core:T win.batch.quick_filter}" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource Muted}"/>
+                        <WrapPanel x:Name="FilterChips" Orientation="Horizontal"/>
+                    </DockPanel>
+                    <DockPanel LastChildFill="True">
+                        <TextBlock Text="{core:T win.batch.text_filter}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                   Foreground="{DynamicResource Muted}"/>
+                        <TextBox x:Name="FilterBox" FlowDirection="LeftToRight" TextChanged="FilterBox_TextChanged"
+                                 Tag="{core:T win.batch.text_filter_tag}"/>
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Links list -->
+            <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0">
+                <DockPanel>
+                    <StackPanel x:Name="SelectButtons" DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Left"
+                                Margin="8,8,8,4" Visibility="Collapsed">
+                        <Button x:Name="SelectAllBtn" Content="{core:T win.batch.select_all}" Padding="12,5" Click="SelectAll_Click"
+                                Style="{StaticResource ToolButton}" Tag="&#xE73E;"/>
+                        <Button x:Name="SelectNoneBtn" Content="{core:T win.batch.select_none}" Padding="12,5" Margin="6,0,0,0"
+                                Click="SelectNone_Click" Style="{StaticResource ToolButton}" Tag="&#xE73D;"/>
+                    </StackPanel>
+                    <DataGrid x:Name="LinksGrid" AutoGenerateColumns="False" CanUserSortColumns="True" SelectionMode="Extended"
+                              ItemsSource="{Binding}" RowHeaderWidth="0" GridLinesVisibility="Horizontal"
+                              HorizontalGridLinesBrush="{DynamicResource GridLine}" Background="{DynamicResource Surface}">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="" Width="40" SortMemberPath="Selected">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding Selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Checked="RowCheckChanged" Unchecked="RowCheckChanged"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="{core:T win.batch.col.icon}" Width="46" SortMemberPath="Category">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border Width="30" Height="30" CornerRadius="8" Background="{DynamicResource AccentSoft}">
+                                            <TextBlock Text="{Binding Category, Converter={StaticResource CategoryGlyphConverter}}"
+                                                       FontFamily="{StaticResource IconFont}" FontSize="14" Foreground="{DynamicResource AccentText}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" FlowDirection="LeftToRight"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="{core:T win.batch.col.file}" Binding="{Binding FileName}" Width="2.1*" SortMemberPath="FileName">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="FontWeight" Value="Medium"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="{core:T win.batch.col.category}" Binding="{Binding Category, Converter={StaticResource CategoryNameConverter}}"
+                                                Width="95" SortMemberPath="Category"/>
+                            <DataGridTextColumn Header="{core:T win.batch.col.link_text}" Binding="{Binding LinkText}" Width="2.4*" SortMemberPath="LinkText">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="{core:T win.batch.col.url}" Binding="{Binding Url}" Width="3.4*" SortMemberPath="Url">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+                                        <Setter Property="FontSize" Value="11.5"/>
+                                        <Setter Property="FlowDirection" Value="LeftToRight"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </Border>
+
+            <!-- IDM save and filtering options -->
+            <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,12,0,0" Padding="16">
+                <StackPanel>
+                    <TextBlock Text="{core:T win.batch.save_label}" Style="{StaticResource Label}"/>
+                    <RadioButton x:Name="CategoryFolderRadio" Content="{core:T win.batch.save_by_cat}" IsChecked="True"/>
+                    <RadioButton x:Name="OneCategoryRadio" Content="{core:T win.batch.save_one_cat}"/>
+                    <ComboBox x:Name="CategoryCombo" Visibility="Collapsed">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Key, Converter={StaticResource CategoryNameConverter}}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <RadioButton x:Name="CustomFolderRadio" Content="{core:T win.batch.save_custom}"/>
+                    <DockPanel x:Name="CustomFolderPanel" LastChildFill="True" Margin="0,4,0,0" Visibility="Collapsed">
+                        <Button x:Name="BrowseCustomBtn" DockPanel.Dock="Left" Content="{core:T win.batch.browse}" Padding="14,6"
+                                Margin="0,0,8,0" Click="BrowseCustom_Click"/>
+                        <TextBox x:Name="CustomFolderBox" FlowDirection="LeftToRight" Tag="{core:T win.batch.custom_folder_tag}"/>
+                    </DockPanel>
+                    <WrapPanel Margin="0,8,0,0">
+                        <CheckBox x:Name="DescriptionBox" Content="{core:T win.batch.use_link_desc}"/>
+                        <CheckBox x:Name="HideWebBox" Content="{core:T win.batch.hide_web}" Margin="14,5,0,0"
+                                  Checked="HideFilter_Changed" Unchecked="HideFilter_Changed"/>
+                        <CheckBox x:Name="HideImagesBox" Content="{core:T win.batch.hide_images}" Margin="14,5,0,0"
+                                  Checked="HideFilter_Changed" Unchecked="HideFilter_Changed"/>
+                        <CheckBox x:Name="HideDuplicatesBox" Content="{core:T win.batch.hide_duplicates}" Margin="14,5,0,0"
+                                  Checked="HideFilter_Changed" Unchecked="HideFilter_Changed"/>
+                    </WrapPanel>
+                    <WrapPanel Margin="0,4,0,0">
+                        <CheckBox x:Name="RenameBox" Content="{core:T win.batch.rename_pattern}"/>
+                        <TextBox x:Name="RenamePatternBox" Width="220" Margin="10,0,0,0"
+                                 FlowDirection="LeftToRight" Tag="photo_*.jpg"/>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

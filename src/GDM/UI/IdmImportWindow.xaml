@@ -1,0 +1,104 @@
+<Window x:Class="Golan.Gdm.UI.IdmImportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="clr-namespace:Golan.Gdm.Core"
+        Title="{core:TExtension idm.title}" Height="620" Width="980"
+        WindowStartupLocation="CenterOwner" Style="{StaticResource GdmWindow}"
+        Icon="/Assets/gdm.ico">
+    <DockPanel>
+        <!-- Bottom bar -->
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}"
+                BorderThickness="0,1,0,0" Padding="16,12">
+            <DockPanel LastChildFill="False">
+                <Button DockPanel.Dock="Right" Content="{core:TExtension idm.cancel_btn}" Padding="20,8" Click="Cancel_Click" IsCancel="True"/>
+                <Button x:Name="ImportBtn" DockPanel.Dock="Right" Style="{StaticResource Primary}"
+                        Content="{core:TExtension idm.import_btn}" Padding="22,8" Margin="0,0,10,0"
+                        Click="Import_Click" IsDefault="True"/>
+                <TextBlock x:Name="SummaryText" DockPanel.Dock="Left" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Muted}" FontSize="12.5"/>
+            </DockPanel>
+        </Border>
+
+        <Grid Margin="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Text="{core:TExtension idm.subtitle}" Foreground="{DynamicResource Muted}"
+                       TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+            <!-- Source card -->
+            <Border Grid.Row="1" Style="{StaticResource Card}" Padding="16" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="{core:TExtension idm.source.header}" FontWeight="Bold" FontSize="13.5" Margin="0,0,0,10"/>
+                    <WrapPanel VerticalAlignment="Center">
+                        <RadioButton x:Name="Ef2Radio" Content="{core:TExtension idm.source.ef2}" IsChecked="True"
+                                     VerticalAlignment="Center" Margin="0,0,14,0"/>
+                        <Button x:Name="BrowseEf2Btn" Content="{core:TExtension idm.browse_ef2}" Padding="14,6"
+                                Margin="0,0,24,0" Click="BrowseEf2_Click"/>
+
+                        <RadioButton x:Name="RegistryRadio" Content="{core:TExtension idm.source.registry}"
+                                     VerticalAlignment="Center" Margin="0,0,14,0"/>
+                        <Button x:Name="ScanRegistryBtn" Content="{core:TExtension idm.scan_registry}" Padding="14,6"
+                                Click="ScanRegistry_Click"/>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Preview table -->
+            <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0">
+                <DataGrid x:Name="CandidatesGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
+                          RowHeaderWidth="0" GridLinesVisibility="Horizontal" Background="{DynamicResource Surface}">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="{core:TExtension idm.col.select}" Width="58">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding Selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              IsEnabled="{Binding Selectable}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Checked="RowSelection_Changed" Unchecked="RowSelection_Changed"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="{core:TExtension idm.col.name}" Binding="{Binding FileName}" Width="2.1*" IsReadOnly="True">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="{core:TExtension idm.col.size}" Binding="{Binding SizeText}" Width="95" IsReadOnly="True"/>
+                        <DataGridTextColumn Header="{core:TExtension idm.col.status}" Binding="{Binding StatusText}" Width="180" IsReadOnly="True"/>
+                        <DataGridTextColumn Header="{core:TExtension idm.col.url}" Binding="{Binding Url}" Width="3.8*" IsReadOnly="True">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                    <Setter Property="FlowDirection" Value="LeftToRight"/>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+
+            <!-- Selection & Target Queue controls -->
+            <Border Grid.Row="3" Style="{StaticResource Card}" Padding="14,10" Margin="0,12,0,0">
+                <DockPanel LastChildFill="False">
+                    <Button DockPanel.Dock="Left" Content="{core:TExtension idm.select_all}" Padding="14,5"
+                            Margin="0,0,8,0" Click="SelectAll_Click"/>
+                    <Button DockPanel.Dock="Left" Content="{core:TExtension idm.select_none}" Padding="14,5"
+                            Click="SelectNone_Click"/>
+
+                    <ComboBox x:Name="QueueCombo" DockPanel.Dock="Right" Width="220" DisplayMemberPath="Label"/>
+                    <TextBlock DockPanel.Dock="Right" Text="{core:TExtension idm.target_queue}" VerticalAlignment="Center"
+                               Margin="0,0,10,0" Foreground="{DynamicResource Muted}"/>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

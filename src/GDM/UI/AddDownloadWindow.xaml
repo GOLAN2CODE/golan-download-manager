@@ -1,0 +1,87 @@
+<Window x:Class="Golan.Gdm.UI.AddDownloadWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="clr-namespace:Golan.Gdm.Core"
+        xmlns:vb="clr-namespace:Golan.Gdm.Core"
+        Title="{core:T main.add.title}" Width="640" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen" Style="{StaticResource GdmWindow}" Icon="/Assets/gdm.ico">
+    <StackPanel Margin="22">
+        <DockPanel Margin="0,0,0,16">
+            <Border Width="44" Height="44" CornerRadius="12" Background="{DynamicResource AccentSoft}">
+                <TextBlock x:Name="KindGlyph" Text="&#xE896;" FontFamily="{StaticResource IconFont}" FontSize="20" Foreground="{DynamicResource AccentText}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" FlowDirection="LeftToRight"/>
+            </Border>
+            <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                <TextBlock Text="{core:T main.add.heading}" FontSize="17" FontWeight="SemiBold"/>
+                <TextBlock x:Name="SubTitle" Text="{core:T main.add.subtitle}" Foreground="{DynamicResource Muted}" FontSize="12"/>
+            </StackPanel>
+        </DockPanel>
+
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <TextBlock Text="{core:T main.add.url}" Style="{StaticResource Label}"/>
+                <DockPanel>
+                    <Button x:Name="CheckBtn" DockPanel.Dock="Right" Content="{core:T main.add.check}" Margin="8,0,0,0" Click="Check_Click"/>
+                    <TextBox x:Name="UrlBox" FlowDirection="LeftToRight" Tag="https://…" TextChanged="UrlBox_TextChanged" AutomationProperties.Name="{core:T main.add.url}"/>
+                </DockPanel>
+
+                <Border x:Name="VideoHint" Background="{DynamicResource WarningSoft}" CornerRadius="8" Padding="10,8" Margin="0,10,0,0" Visibility="Collapsed">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="{core:T main.add.openVideoBtn}" Click="OpenVideo_Click" Padding="12,5"/>
+                        <TextBlock Text="{core:T main.add.videoHint}" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{DynamicResource WarningInk}"/>
+                    </DockPanel>
+                </Border>
+
+                <Grid Margin="0,14,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="220"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="{core:T main.add.saveAs}" Style="{StaticResource Label}"/>
+                        <TextBox x:Name="NameBox" TextChanged="NameBox_TextChanged" AutomationProperties.Name="{core:T main.add.fileNameAria}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="{core:T main.add.category}" Style="{StaticResource Label}"/>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="+" Width="34" Padding="0,6" Margin="6,0,0,0" Click="NewCategory_Click" ToolTip="{core:T main.add.newCategoryTip}"/>
+                            <ComboBox x:Name="CategoryBox" DisplayMemberPath="Name" SelectionChanged="CategoryBox_SelectionChanged"/>
+                        </DockPanel>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="{core:T main.add.folder}" Style="{StaticResource Label}" Margin="0,14,0,5"/>
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="{core:T main.add.browse}" Margin="8,0,0,0" Click="Browse_Click"/>
+                    <TextBox x:Name="FolderBox" FlowDirection="LeftToRight" TextChanged="FolderBox_TextChanged" AutomationProperties.Name="{core:T main.add.folderAria}"/>
+                </DockPanel>
+                <TextBlock x:Name="DiskSpaceText" Foreground="{DynamicResource Muted}" FontSize="11.5" Margin="0,4,0,0" Visibility="Collapsed"/>
+                <CheckBox x:Name="RememberPathBox" Margin="0,6,0,0"/>
+
+                <TextBlock Text="{core:T main.add.description}" Style="{StaticResource Label}" Margin="0,10,0,5"/>
+                <TextBox x:Name="DescriptionBox" AutomationProperties.Name="{core:T main.add.descriptionAria}"/>
+
+                <TextBlock Text="{vb:T win.add.expected_hash}" Style="{StaticResource Label}" Margin="0,10,0,5"/>
+                <TextBox x:Name="ExpectedHashBox" FlowDirection="LeftToRight" AutomationProperties.Name="{vb:T win.add.expected_hash}"/>
+                <CheckBox x:Name="AutoExtractCheck" Content="{vb:T win.add.auto_extract}" ToolTip="{vb:T win.add.auto_extract}" IsThreeState="True" Margin="0,8,0,0"/>
+
+                <Border Background="{DynamicResource SurfaceAlt}" CornerRadius="8" Padding="12,10" Margin="0,14,0,0">
+                    <DockPanel>
+                        <Button x:Name="PreviewBtn" DockPanel.Dock="Right" Content="{core:T main.add.previewZip}" Padding="12,4" Click="Preview_Click" Visibility="Collapsed"/>
+                        <ProgressBar x:Name="ProbeBar" DockPanel.Dock="Left" Width="18" Height="18" IsIndeterminate="True" Visibility="Collapsed" Margin="0,0,10,0"/>
+                        <TextBlock x:Name="InfoText" Text="{core:T main.add.sizeDash}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </DockPanel>
+                </Border>
+                <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed"/>
+            </StackPanel>
+        </Border>
+
+        <DockPanel Margin="0,18,0,0" LastChildFill="False">
+            <Button x:Name="StartBtn" DockPanel.Dock="Left" Style="{StaticResource Primary}" Content="{core:T main.add.start}" IsDefault="True" Click="Start_Click" MinWidth="120"/>
+            <Button DockPanel.Dock="Left" Content="{core:T main.add.later}" Margin="8,0,0,0" Click="Later_Click"/>
+            <Button DockPanel.Dock="Left" Content="{core:T main.dialog.cancel}" IsCancel="True" Margin="8,0,0,0" Click="Cancel_Click"/>
+            <TextBlock DockPanel.Dock="Right" x:Name="ConnText" Foreground="{DynamicResource Muted}" FontSize="12" VerticalAlignment="Center"/>
+        </DockPanel>
+    </StackPanel>
+</Window>

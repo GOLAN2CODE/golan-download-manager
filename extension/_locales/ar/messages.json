@@ -1,0 +1,152 @@
+{
+  "extName": {
+    "message": "جولان - مدير التنزيل"
+  },
+  "extDescription": {
+    "message": "يلتقط التنزيلات من المتصفح ويرسلها إلى برنامج جولان، وينزّل الفيديوهات من يوتيوب وأكثر من ألف موقع."
+  },
+  "appShortName": {
+    "message": "جولان"
+  },
+  "appSubtitle": {
+    "message": "مدير التنزيل"
+  },
+  "statusChecking": {
+    "message": "جارٍ التحقق…"
+  },
+  "statusConnected": {
+    "message": "متصل"
+  },
+  "statusOffline": {
+    "message": "جولان غير متصل"
+  },
+  "popupOfflineBanner": {
+    "message": "برنامج جولان غير قيد التشغيل — يرجى تشغيل البرنامج والمحاولة مجدداً."
+  },
+  "popupInterceptTitle": {
+    "message": "التقاط التنزيلات من المتصفح"
+  },
+  "popupInterceptDesc": {
+    "message": "إرسال الملفات المنزّلة إلى جولان بدلاً من المتصفح"
+  },
+  "popupDownloadPageVideo": {
+    "message": "تنزيل فيديو هذه الصفحة"
+  },
+  "popupVideoHint": {
+    "message": "يعمل مع يوتيوب وأكثر من ألف موقع"
+  },
+  "popupDownloadAllLinks": {
+    "message": "تنزيل جميع الروابط"
+  },
+  "popupPageVideosTitle": {
+    "message": "الفيديوهات في هذه الصفحة"
+  },
+  "popupMediaEmpty": {
+    "message": "لم يتم العثور على فيديو حتى الآن. شغّل الفيديو ثم أعد فتح هذه القائمة."
+  },
+  "popupRestoreVideoBtn": {
+    "message": "إعادة إظهار زر التنزيل فوق الفيديوهات في هذا الموقع"
+  },
+  "btnDownload": {
+    "message": "تنزيل"
+  },
+  "typeStream": {
+    "message": "بث"
+  },
+  "typeAudio": {
+    "message": "صوت"
+  },
+  "typeVideo": {
+    "message": "فيديو"
+  },
+  "unitB": {
+    "message": "بايت"
+  },
+  "unitKB": {
+    "message": "ك.ب"
+  },
+  "unitMB": {
+    "message": "م.ب"
+  },
+  "unitGB": {
+    "message": "غ.ب"
+  },
+  "toastSentToGdm": {
+    "message": "تم الإرسال إلى جولان ✓"
+  },
+  "toastVideoSent": {
+    "message": "تم إرسال الفيديو إلى جولان ✓"
+  },
+  "toastLinksCountSent": {
+    "message": "تم إرسال $1 رابط إلى جولان ✓"
+  },
+  "toastLinksSent": {
+    "message": "تم إرسال الروابط إلى جولان ✓"
+  },
+  "toastInterceptOn": {
+    "message": "تم تفعيل التقاط التنزيلات"
+  },
+  "toastInterceptOff": {
+    "message": "تم إيقاف التقاط التنزيلات"
+  },
+  "toastButtonRestored": {
+    "message": "تمت استعادة الزر لهذا الموقع"
+  },
+  "errNotRunning": {
+    "message": "برنامج جولان غير قيد التشغيل. يرجى تشغيل البرنامج والمحاولة مرة أخرى."
+  },
+  "errNotRunningShort": {
+    "message": "برنامج جولان غير قيد التشغيل — يرجى تشغيل البرنامج"
+  },
+  "errGenericGdm": {
+    "message": "حدث خطأ في برنامج جولان."
+  },
+  "errRequestFailed": {
+    "message": "تعذّر على جولان معالجة الطلب: $1"
+  },
+  "errGdmReply": {
+    "message": "أعاد جولان خطأً: $1"
+  },
+  "errTryAgain": {
+    "message": "فشلت العملية، يرجى المحاولة مجدداً"
+  },
+  "errInvalidUrl": {
+    "message": "لا يمكن تنزيل هذا الرابط بواسطة جولان."
+  },
+  "errNothingToDownload": {
+    "message": "لا يوجد ما يمكن تنزيله في هذه الصفحة."
+  },
+  "errCannotReadLinks": {
+    "message": "لا يمكن قراءة الروابط من هذه الصفحة."
+  },
+  "errReadLinksFailed": {
+    "message": "تعذّرت قراءة الروابط من هذه الصفحة."
+  },
+  "errNoLinksFound": {
+    "message": "لا توجد روابط في هذه الصفحة."
+  },
+  "menuDownloadLink": {
+    "message": "تنزيل بواسطة جولان"
+  },
+  "menuDownloadAll": {
+    "message": "تنزيل جميع الروابط بواسطة جولان"
+  },
+  "menuDownloadVideo": {
+    "message": "تنزيل الفيديو من هذه الصفحة بواسطة جولان"
+  },
+  "menuDownloadImage": {
+    "message": "تنزيل الصورة بواسطة جولان"
+  },
+  "panelDownloadVideo": {
+    "message": "تنزيل هذا الفيديو"
+  },
+  "panelHideOnSite": {
+    "message": "إخفاء الزر في هذا الموقع"
+  },
+  "panelSending": {
+    "message": "جارٍ الإرسال إلى جولان…"
+  },
+  "panelSent": {
+    "message": "تم الإرسال إلى جولان"
+  }
+}

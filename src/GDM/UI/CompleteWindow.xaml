@@ -1,0 +1,25 @@
+<Window x:Class="Golan.Gdm.UI.CompleteWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="clr-namespace:Golan.Gdm.Core"
+        Title="{core:T main.complete.title}" Width="520"
+        SizeToContent="Height" WindowStartupLocation="CenterOwner" Style="{StaticResource GdmWindow}" Icon="/Assets/gdm.ico">
+    <StackPanel Margin="24">
+        <TextBlock Text="{core:T main.complete.heading}" FontSize="20" FontWeight="SemiBold"/>
+        <TextBlock x:Name="NameText" FontSize="15" Margin="0,14,0,0" TextWrapping="Wrap" HorizontalAlignment="Left"/>
+        <TextBlock Text="{core:T main.complete.url}" Style="{StaticResource Label}" Margin="0,12,0,0"/>
+        <TextBlock x:Name="UrlText" TextWrapping="Wrap" FlowDirection="LeftToRight" HorizontalAlignment="Left"/>
+        <TextBlock Text="{core:T main.complete.savedAs}" Style="{StaticResource Label}" Margin="0,12,0,0"/>
+        <TextBlock x:Name="PathText" TextWrapping="Wrap" FlowDirection="LeftToRight" HorizontalAlignment="Left"/>
+        <DockPanel Margin="0,12,0,0">
+            <TextBlock Text="{core:T main.complete.size}" Style="{StaticResource Label}" DockPanel.Dock="Left"/>
+            <TextBlock x:Name="SizeText" Margin="12,0,0,0"/>
+        </DockPanel>
+        <CheckBox x:Name="DontShow" Content="{core:T main.complete.dontShow}" Margin="0,16,0,0"/>
+        <DockPanel Margin="0,20,0,0" LastChildFill="False">
+            <Button Content="{core:T main.complete.open}" Style="{StaticResource Primary}" Click="Open_Click" DockPanel.Dock="Left" MinWidth="86"/>
+            <Button Content="{core:T main.complete.openWith}" Click="OpenWith_Click" DockPanel.Dock="Left" Margin="8,0,0,0"/>
+            <Button Content="{core:T main.complete.openFolder}" Click="Folder_Click" DockPanel.Dock="Left" Margin="8,0,0,0"/>
+            <Button Content="{core:T main.complete.close}" IsDefault="True" IsCancel="True" Click="Close_Click" DockPanel.Dock="Right"/>
+        </DockPanel>
+    </StackPanel>
+</Window>

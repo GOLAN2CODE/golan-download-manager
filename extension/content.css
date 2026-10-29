@@ -1,0 +1,12 @@
+/* Golan floating button host. Real styles live inside its Shadow DOM. */
+#gdm-dl-host {
+  all: initial !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: visible !important;
+  z-index: 2147483647 !important;
+  pointer-events: none !important;
+}

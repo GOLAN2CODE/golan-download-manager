@@ -1,0 +1,14 @@
+{
+  "remote.tls.badge": "Encrypted via HTTPS (ECDSA P-256)",
+  "remote.tls.title": "HTTPS Certificate Fingerprint (SHA-256):",
+  "remote.tls.hint": "When opening the link on your phone for the first time, the browser will show a self-signed certificate warning. Compare this fingerprint with the browser's certificate details or the QR link (#fp=...) before proceeding.",
+  "remote.tls.copyFp": "Copy Fingerprint",
+  "remote.tls.regenerateCert": "Regenerate Certificate",
+  "remote.tls.regenerated": "HTTPS certificate regenerated.",
+  "remote.tls.web.badge": "Encrypted HTTPS Connection",
+  "remote.tls.web.fpLabel": "Server Certificate Fingerprint (SHA-256):",
+  "remote.tls.web.fpVerified": "Matches scanned QR fingerprint",
+  "remote.tls.web.fpMismatch": "Warning: URL fingerprint does not match the current server certificate!",
+  "remote.tls.web.whyTitle": "Why does the browser warn once, and how do I verify the fingerprint?",
+  "remote.tls.web.whyBody": "Golan uses a locally generated self-signed TLS certificate (ECDSA P-256) to encrypt your control token and all requests over the local network without relying on any external server. Because this certificate is generated locally on your PC rather than issued by a public certificate authority, your phone's browser shows a one-time warning on first connection. To verify the connection: compare the SHA-256 fingerprint shown in your browser's certificate details or QR link (#fp=...) with the fingerprint displayed in Golan's Remote Control window on your PC, then proceed."
+}

@@ -1,0 +1,21 @@
+# Build output
+bin/
+obj/
+installer/build/
+store/dist/
+*.user
+.vs/
+
+# Test output and generated test data
+out/
+tests/render/out/
+tests/engine/served/big.bin
+tests/engine/served/changing.bin
+
+# Never commit secrets or signing keys
+*.pem
+*.pfx
+*.p12
+*.key
+*.snk
+.env*

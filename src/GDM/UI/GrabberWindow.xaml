@@ -1,0 +1,312 @@
+<Window x:Class="Golan.Gdm.UI.GrabberWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="clr-namespace:Golan.Gdm.Core"
+        Title="{core:T win.grabber.title}" Width="1120" Height="680" MinWidth="820" MinHeight="560"
+        WindowStartupLocation="CenterOwner" Style="{StaticResource GdmWindow}" Icon="/Assets/gdm.ico">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.Row="0" Margin="0,0,0,16">
+            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                <TextBlock Text="1" x:Name="Dot1" Width="28" Height="28" Padding="0,4,0,0" TextAlignment="Center" VerticalAlignment="Center"
+                           Background="{DynamicResource Accent}" Foreground="{DynamicResource AccentInk}" FontWeight="Bold" Margin="0,0,8,0"/>
+                <TextBlock Text="2" x:Name="Dot2" Width="28" Height="28" Padding="0,4,0,0" TextAlignment="Center" VerticalAlignment="Center"
+                           Background="{DynamicResource Line}" Foreground="{DynamicResource Muted}" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                <TextBlock Text="3" x:Name="Dot3" Width="28" Height="28" Padding="0,4,0,0" TextAlignment="Center" VerticalAlignment="Center"
+                           Background="{DynamicResource Line}" Foreground="{DynamicResource Muted}" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                <TextBlock Text="4" x:Name="Dot4" Width="28" Height="28" Padding="0,4,0,0" TextAlignment="Center" VerticalAlignment="Center"
+                           Background="{DynamicResource Line}" Foreground="{DynamicResource Muted}" FontWeight="SemiBold"/>
+            </StackPanel>
+            <StackPanel Margin="14,0,0,0">
+                <TextBlock x:Name="StepTitle" Text="{core:T win.grabber.step1_title}" FontSize="19" FontWeight="SemiBold"/>
+                <TextBlock x:Name="StepHint" Text="{core:T win.grabber.step1_hint}" Foreground="{DynamicResource Muted}"/>
+            </StackPanel>
+        </DockPanel>
+
+        <Grid Grid.Row="1">
+            <ScrollViewer x:Name="WizardScroll" VerticalScrollBarVisibility="Auto">
+                <Grid>
+                    <Grid x:Name="Step1">
+                        <StackPanel>
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="{core:T win.grabber.project_info}" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,14"/>
+                                    <TextBlock Text="{core:T win.grabber.project_name}" Style="{StaticResource Label}"/>
+                                    <TextBox x:Name="NameBox" Tag="{core:T win.grabber.project_name_tag}" AutomationProperties.Name="{core:T win.grabber.project_name}"/>
+                                    <TextBlock Text="{core:T win.grabber.start_url}" Style="{StaticResource Label}" Margin="0,14,0,5"/>
+                                    <TextBox x:Name="StartUrlBox" FlowDirection="LeftToRight" Tag="https://…" AutomationProperties.Name="{core:T win.grabber.start_url}"/>
+                                    <TextBlock Text="{core:T win.grabber.preset_label}" Style="{StaticResource Label}" Margin="0,14,0,5"/>
+                                    <ComboBox x:Name="PresetBox" DisplayMemberPath="Name" SelectionChanged="Preset_Changed"/>
+                                    <TextBlock Text="{core:T win.grabber.saved_project}" Style="{StaticResource Label}" Margin="0,14,0,5"/>
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Left" Content="{core:T win.grabber.load_btn}" Click="LoadProject_Click" Margin="8,0,0,0"/>
+                                        <ComboBox x:Name="SavedBox" DisplayMemberPath="Name"/>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="{core:T win.grabber.auth_title}" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,14"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="12"/>
+                                            <ColumnDefinition/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{core:T win.grabber.auth_user}" Style="{StaticResource Label}"/>
+                                            <TextBox x:Name="LoginBox"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="{core:T win.grabber.auth_password}" Style="{StaticResource Label}"/>
+                                            <PasswordBox x:Name="PasswordBox"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid x:Name="Step2" Visibility="Collapsed">
+                        <StackPanel>
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="{core:T win.grabber.pages_to_explore}" FontSize="15" FontWeight="SemiBold"/>
+                                    <CheckBox x:Name="ExploreWholeBox" Content="{core:T win.grabber.explore_whole}"/>
+                                    <Grid Margin="0,4,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="12"/>
+                                            <ColumnDefinition/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{core:T win.grabber.levels_base}" Style="{StaticResource Label}"/>
+                                            <TextBox x:Name="LevelsBaseBox" FlowDirection="LeftToRight"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="{core:T win.grabber.levels_other}" Style="{StaticResource Label}"/>
+                                            <TextBox x:Name="LevelsOtherBox" FlowDirection="LeftToRight"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <CheckBox x:Name="DontParentBox" Content="{core:T win.grabber.dont_parent}"/>
+                                    <CheckBox x:Name="MainDomainBox" Content="{core:T win.grabber.main_domain}"/>
+                                    <Grid Margin="0,4,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="12"/>
+                                            <ColumnDefinition/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{core:T win.grabber.explore_only}" Style="{StaticResource Label}"/>
+                                            <TextBox x:Name="ExploreOnlyBox" FlowDirection="LeftToRight"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="{core:T win.grabber.explore_skip}" Style="{StaticResource Label}"/>
+                                            <TextBox x:Name="ExploreSkipBox" FlowDirection="LeftToRight"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <TextBlock Text="{core:T win.grabber.max_pages}" Style="{StaticResource Label}" Margin="0,12,0,5"/>
+                                    <TextBox x:Name="MaxPagesBox" Width="160" HorizontalAlignment="Left" FlowDirection="LeftToRight"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid x:Name="Step3" Visibility="Collapsed">
+                        <StackPanel>
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="{core:T win.grabber.target_files}" FontSize="15" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{core:T win.grabber.file_masks}" Style="{StaticResource Label}" Margin="0,12,0,5"/>
+                                    <TextBox x:Name="MasksBox" FlowDirection="LeftToRight"/>
+                                    <WrapPanel x:Name="PresetChips" Margin="0,8,0,0"/>
+                                    <Grid Margin="0,12,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="12"/>
+                                            <ColumnDefinition/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{core:T win.grabber.skip_masks}" Style="{StaticResource Label}"/>
+                                            <TextBox x:Name="SkipMasksBox" FlowDirection="LeftToRight"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="{core:T win.grabber.min_max_kb}" Style="{StaticResource Label}"/>
+                                            <DockPanel>
+                                                <TextBox x:Name="MinSizeBox" Width="90" FlowDirection="LeftToRight"/>
+                                                <TextBlock Text=" — " VerticalAlignment="Center"/>
+                                                <TextBox x:Name="MaxSizeBox" Width="90" FlowDirection="LeftToRight"/>
+                                            </DockPanel>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Grid Margin="0,12,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="12"/>
+                                            <ColumnDefinition/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{core:T win.grabber.files_only}" Style="{StaticResource Label}"/>
+                                            <TextBox x:Name="FilesOnlyBox" FlowDirection="LeftToRight"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="{core:T win.grabber.files_skip}" Style="{StaticResource Label}"/>
+                                            <TextBox x:Name="FilesSkipBox" FlowDirection="LeftToRight"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <CheckBox x:Name="SiteOnlyBox" Content="{core:T win.grabber.site_only}"/>
+                                    <CheckBox x:Name="DuplicatesBox" Content="{core:T win.grabber.hide_duplicates}"/>
+                                    <CheckBox x:Name="AllAtOnceBox" Content="{core:T win.grabber.all_at_once}"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid x:Name="Step4" Visibility="Collapsed">
+                        <StackPanel>
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="{core:T win.grabber.save_mode}" FontSize="15" FontWeight="SemiBold"/>
+                                    <RadioButton x:Name="CategoryRadio" Content="{core:T win.grabber.save_by_cat}" GroupName="save" IsChecked="True"/>
+                                    <RadioButton x:Name="OneCategoryRadio" Content="{core:T win.grabber.save_one_cat}" GroupName="save" Margin="0,6,0,0"/>
+                                    <ComboBox x:Name="CategoryBox" DisplayMemberPath="Name" Margin="26,3,0,5"/>
+                                    <RadioButton x:Name="FolderRadio" Content="{core:T win.grabber.save_folder}" GroupName="save"/>
+                                    <DockPanel Margin="26,3,0,0">
+                                        <Button DockPanel.Dock="Left" Content="{core:T win.grabber.browse}" Click="Browse_Click" Margin="8,0,0,0"/>
+                                        <TextBox x:Name="FolderBox" FlowDirection="LeftToRight"/>
+                                    </DockPanel>
+                                    <CheckBox x:Name="RelativeBox" Content="{core:T win.grabber.keep_relative}"/>
+                                    <CheckBox x:Name="DescriptionBox" Content="{core:T win.grabber.link_text_desc}"/>
+                                    <Grid Margin="0,12,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="12"/>
+                                            <ColumnDefinition/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{core:T win.grabber.explore_at_once}" Style="{StaticResource Label}"/>
+                                            <ComboBox x:Name="ExploreAtOnceBox"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="{core:T win.grabber.download_at_once}" Style="{StaticResource Label}"/>
+                                            <ComboBox x:Name="DownloadAtOnceBox"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Button Content="{core:T win.grabber.save_project}" HorizontalAlignment="Left" Margin="0,14,0,0" Click="SaveProject_Click"/>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock x:Name="ValidationText" Foreground="{DynamicResource Danger}" TextWrapping="Wrap"
+                                       Margin="4,10,4,0" Visibility="Collapsed"/>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </ScrollViewer>
+
+            <Grid x:Name="ResultsView" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Border Style="{StaticResource Card}" Padding="12" Margin="0,0,0,12">
+                    <UniformGrid Columns="6">
+                        <StackPanel>
+                            <TextBlock Text="{core:T win.grabber.stat.pages}" Style="{StaticResource Label}"/>
+                            <TextBlock x:Name="PagesText" FontSize="16" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="{core:T win.grabber.stat.explored}" Style="{StaticResource Label}"/>
+                            <TextBlock x:Name="ExploredText" FontSize="16" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="{core:T win.grabber.stat.matched}" Style="{StaticResource Label}"/>
+                            <TextBlock x:Name="MatchedText" FontSize="16" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="{core:T win.grabber.stat.downloaded}" Style="{StaticResource Label}"/>
+                            <TextBlock x:Name="DownloadedText" FontSize="16" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <StackPanel Grid.ColumnSpan="2">
+                            <TextBlock Text="{core:T win.grabber.stat.status}" Style="{StaticResource Label}"/>
+                            <TextBlock x:Name="StatusText" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </UniformGrid>
+                </Border>
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="265"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource Card}" Padding="8">
+                        <TreeView x:Name="FoundTree" SelectedItemChanged="Tree_Changed" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+                    </Border>
+                    <DataGrid x:Name="FilesGrid" Grid.Column="2" ItemsSource="{Binding}" IsReadOnly="False">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="✓" Binding="{Binding Checked, Mode=TwoWay}" Width="38"/>
+                            <DataGridTextColumn Header="{core:T win.grabber.col.icon}" Binding="{Binding Glyph}" Width="46" FontFamily="{StaticResource IconFont}">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontFamily" Value="{StaticResource IconFont}"/>
+                                        <Setter Property="FontSize" Value="15"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
+                                        <Setter Property="HorizontalAlignment" Value="Center"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="FlowDirection" Value="LeftToRight"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="{core:T win.grabber.col.name}" Binding="{Binding Name}" Width="2.8*">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="{core:T win.grabber.col.type}" Binding="{Binding Extension}" Width="64"/>
+                            <DataGridTextColumn Header="{core:T win.grabber.col.size}" Binding="{Binding SizeText}" Width="78"/>
+                            <DataGridTextColumn Header="{core:T win.grabber.col.found_on}" Binding="{Binding FoundOn}" Width="2.6*">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="{core:T win.grabber.col.link_text}" Binding="{Binding LinkText}" Width="0.9*">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+                <DockPanel Grid.Row="2" Margin="0,12,0,0" LastChildFill="False">
+                    <Button x:Name="StopButton" DockPanel.Dock="Left" Content="{core:T win.grabber.stop}" Click="Stop_Click"/>
+                    <Button DockPanel.Dock="Left" Content="{core:T win.grabber.select_all}" Click="SelectAll_Click" Margin="8,0,0,0"/>
+                    <Button DockPanel.Dock="Left" Content="{core:T win.grabber.select_none}" Click="SelectNone_Click" Margin="8,0,0,0"/>
+                    <Button x:Name="DownloadButton" DockPanel.Dock="Right" Style="{StaticResource Primary}"
+                            Content="{core:T win.grabber.download_selected}" Click="Download_Click" Margin="8,0,0,0"/>
+                    <Button DockPanel.Dock="Right" Content="{core:T win.grabber.queue_selected}" Click="Queue_Click"/>
+                </DockPanel>
+            </Grid>
+        </Grid>
+
+        <DockPanel Grid.Row="2" Margin="0,16,0,0" LastChildFill="False">
+            <Button x:Name="BackButton" DockPanel.Dock="Left" Content="{core:T win.grabber.back}" Click="Back_Click" IsEnabled="False"/>
+            <Button x:Name="NextButton" DockPanel.Dock="Left" Content="{core:T win.grabber.next}" Style="{StaticResource Primary}" Click="Next_Click" Margin="8,0,0,0"/>
+            <Button DockPanel.Dock="Left" Content="{core:T win.grabber.close}" IsCancel="True" Click="Close_Click" Margin="8,0,0,0"/>
+            <Button x:Name="StartButton" DockPanel.Dock="Right" Content="{core:T win.grabber.start}" Style="{StaticResource Primary}"
+                    Click="Start_Click" Visibility="Collapsed"/>
+        </DockPanel>
+    </Grid>
+</Window>

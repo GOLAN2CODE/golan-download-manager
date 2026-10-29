@@ -1,0 +1,18 @@
+<Window x:Class="Golan.Gdm.UI.ZipPreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="clr-namespace:Golan.Gdm.Core"
+        Title="{core:T win.zip.title}" Width="760" Height="500"
+        WindowStartupLocation="CenterScreen" Style="{StaticResource GdmWindow}" Icon="/Assets/gdm.ico">
+    <DockPanel Margin="16">
+        <TextBlock x:Name="StateText" DockPanel.Dock="Bottom" Margin="0,10,0,0" Foreground="{DynamicResource Muted}"/>
+        <DataGrid x:Name="EntriesGrid" AutoGenerateColumns="False" IsReadOnly="True">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="{core:T win.zip.col.name}" Binding="{Binding Name}" Width="3*"/>
+                <DataGridTextColumn Header="{core:T win.zip.col.size}" Binding="{Binding Size}" Width="*"/>
+                <DataGridTextColumn Header="{core:T win.zip.col.compressed}" Binding="{Binding CompressedSize}" Width="*"/>
+                <DataGridTextColumn Header="{core:T win.zip.col.modified}" Binding="{Binding Modified}" Width="1.4*"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

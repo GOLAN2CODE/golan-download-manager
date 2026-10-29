@@ -1,0 +1,50 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Golan Light Mode Palette -->
+    <Color x:Key="AccentColor">#FDD103</Color>
+    <SolidColorBrush x:Key="Accent" Color="#FDD103"/>
+    <SolidColorBrush x:Key="AccentHover" Color="#F5C400"/>
+    <SolidColorBrush x:Key="AccentPressed" Color="#E0B100"/>
+    <SolidColorBrush x:Key="AccentInk" Color="#131313"/>
+    <SolidColorBrush x:Key="AccentSoft" Color="#FEF7CD"/>
+    <SolidColorBrush x:Key="AccentBorder" Color="#EAB308"/>
+    <!-- Dark-amber readable accent text on white/light surfaces (WCAG AAA 9.1:1 on #FFFFFF, 8.45:1 on #FEF7CD) -->
+    <SolidColorBrush x:Key="AccentText" Color="#78350F"/>
+    <SolidColorBrush x:Key="FocusRing" Color="#D97706"/>
+
+    <!-- Warm Apple-grade Light Surfaces & Neutrals -->
+    <SolidColorBrush x:Key="WindowBg" Color="#F5F5F3"/>
+    <SolidColorBrush x:Key="Surface" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SurfaceAlt" Color="#F9F9F8"/>
+    <SolidColorBrush x:Key="Line" Color="#E4E4E0"/>
+    <SolidColorBrush x:Key="LineStrong" Color="#D4D4CE"/>
+    <SolidColorBrush x:Key="Ink" Color="#131313"/>
+    <SolidColorBrush x:Key="Muted" Color="#57534E"/>
+
+    <!-- Interactive & Chrome Tokens -->
+    <SolidColorBrush x:Key="ControlHover" Color="#EFECE6"/>
+    <SolidColorBrush x:Key="ControlPressed" Color="#E5E2DC"/>
+    <SolidColorBrush x:Key="BadgeBg" Color="#EFECE6"/>
+    <SolidColorBrush x:Key="GridLine" Color="#F0F0EC"/>
+    <SolidColorBrush x:Key="ProgressTrack" Color="#EAEAE4"/>
+    <SolidColorBrush x:Key="ProgressPaused" Color="#A8A29E"/>
+    <SolidColorBrush x:Key="ScrollThumb" Color="#D6D3CD"/>
+    <SolidColorBrush x:Key="ScrollThumbHover" Color="#A8A29E"/>
+
+    <!-- Harmonized Semantic Tokens -->
+    <SolidColorBrush x:Key="Success" Color="#15803D"/>
+    <SolidColorBrush x:Key="SuccessSoft" Color="#DCFCE7"/>
+    <SolidColorBrush x:Key="SuccessInk" Color="#14532D"/>
+    <SolidColorBrush x:Key="Warning" Color="#B45309"/>
+    <SolidColorBrush x:Key="Warn" Color="#B45309"/>
+    <SolidColorBrush x:Key="WarningSoft" Color="#FEF3C7"/>
+    <SolidColorBrush x:Key="WarningInk" Color="#78350F"/>
+    <SolidColorBrush x:Key="Danger" Color="#DC2626"/>
+    <SolidColorBrush x:Key="OnDanger" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="DangerSoft" Color="#FEF2F2"/>
+    <SolidColorBrush x:Key="DangerBorder" Color="#FECACA"/>
+    <SolidColorBrush x:Key="DangerInk" Color="#991B1B"/>
+    <SolidColorBrush x:Key="Info" Color="#0369A1"/>
+    <SolidColorBrush x:Key="InfoSoft" Color="#E0F2FE"/>
+    <SolidColorBrush x:Key="InfoInk" Color="#0C4A6E"/>
+</ResourceDictionary>

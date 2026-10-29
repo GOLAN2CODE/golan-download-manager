@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="__LANG__" dir="__DIR__">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Golan Remote Control</title>
+  <style>
+    :root {
+      --bg: #f6f6f7;
+      --surface: #ffffff;
+      --surface-alt: #f0f1f4;
+      --line: #e2e4e9;
+      --ink: #131313;
+      --muted: #5b616e;
+      --accent: #FDD103;
+      --accent-hover: #E5BC00;
+      --accent-soft: #FFFBEB;
+      --accent-ink: #131313;
+      --accent-text: #78350F;
+      --success: #16a34a;
+      --success-soft: #dcfce7;
+      --danger: #dc2626;
+      --danger-soft: #fee2e2;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e0f12;
+        --surface: #16181d;
+        --surface-alt: #1d2027;
+        --line: #262932;
+        --ink: #f5f6f8;
+        --muted: #9aa1ae;
+        --accent-soft: #2b240a;
+        --accent-text: #FDD103;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Tahoma, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin-bottom: 14px;
+    }
+    .brand-lockup {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    h2 {
+      margin: 0 0 10px 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    input[type="text"], input[type="url"], select {
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 14px;
+      background: var(--surface);
+      color: var(--ink);
+      flex: 1;
+      min-width: 140px;
+    }
+    button {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--accent-ink);
+    }
+    button.primary:hover {
+      background: var(--accent-hover);
+    }
+    button.danger {
+      color: var(--danger);
+      border-color: #fecaca;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-text);
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .tls-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--success-soft);
+      color: var(--success);
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .tls-badge.mismatch {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+    .fp-box {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12.5px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      background: var(--surface-alt);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin: 6px 0;
+      direction: ltr;
+      text-align: left;
+      word-break: break-all;
+      user-select: all;
+    }
+    details.tls-help {
+      margin-top: 8px;
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+    details.tls-help summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--accent-text);
+      outline: none;
+    }
+    details.tls-help p {
+      margin: 6px 0 0 0;
+      line-height: 1.55;
+    }
+    .item {
+      border-top: 1px solid var(--line);
+      padding: 12px 0;
+    }
+    .item:first-child { border-top: none; padding-top: 0; }
+    .item-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-weight: 600;
+      word-break: break-all;
+    }
+    .item-meta {
+      color: var(--muted);
+      font-size: 12px;
+      margin: 4px 0 8px 0;
+      display: flex;
+      justify-content: space-between;
+    }
+    .bar {
+      height: 8px;
+      background: var(--surface-alt);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .bar > div {
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.25s ease;
+    }
+    .msg {
+      color: var(--danger);
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand-lockup">
+        <svg width="34" height="34" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect width="36" height="36" rx="9" fill="#FDD103"/>
+          <path d="M9 11.5L13 11.5L18 16.5L15.2 19.3L9 13.1V11.5ZM27 11.5H23L18 16.5L20.8 19.3L27 13.1V11.5ZM18 18.5L25.5 26H21.2L18 22.8L14.8 26H10.5L18 18.5Z" fill="#131313"/>
+        </svg>
+        <div>
+          <div class="brand" id="lblBrand">جولان - التحكم عن بُعد</div>
+          <div style="font-size:12px;color:var(--muted)" id="lblSpeed">0 KB/s</div>
+        </div>
+      </div>
+      <div class="row">
+        <button id="btnLimiter" class="hidden" onclick="toggleLimiter()"></button>
+        <button id="btnLang" onclick="switchLanguage()">EN / عربي</button>
+        <button id="btnLogout" class="hidden" onclick="logout()"></button>
+      </div>
+    </header>
+
+    <div id="tlsCard" class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:6px">
+        <span class="tls-badge" id="lblTlsBadge">🔒 اتصال HTTPS مشفّر</span>
+        <span class="tls-badge hidden" id="lblFpVerifyStatus"></span>
+      </div>
+      <div style="font-size:12.5px;font-weight:600;color:var(--muted)" id="lblFpLabel">بصمة شهادة الخادم (SHA-256):</div>
+      <div class="fp-box" id="lblCertFpGroups">__CERT_FP_GROUPS__</div>
+      <div class="fp-box" style="font-size:11px;color:var(--muted)" id="lblCertFpColon">__CERT_FP_COLON__</div>
+      <details class="tls-help" id="tlsHelpDetails" open>
+        <summary id="lblTlsWhyTitle">لماذا يظهر تحذير الشهادة في المتصفح لمرة واحدة؟ وكيف تتحقق من البصمة؟</summary>
+        <p id="lblTlsWhyBody">يستخدم جولان شهادة TLS ذاتية التوقيع (ECDSA P-256) تُنشأ محلياً على جهازك لتشفير رمز التحكم وكافة الطلبات عبر الشبكة المحلية دون الاعتماد على أي خادم خارجي. ولأن الشهادة محلية وليست صادرة عن جهة شهادات عامة، يعرض متصفح الهاتف تنبيهاً لمرة واحدة عند الاتصال الأول. للتحقق من أمان الاتصال: قارن بصمة SHA-256 المعروضة في تفاصيل شهادة المتصفح أو في رابط QR (#fp=...) مع البصمة الظاهرة في نافذة «التحكم عن بُعد» داخل تطبيق جولان على الكمبيوتر، ثم اختر المتابعة.</p>
+      </details>
+    </div>
+
+    <div id="pairView" class="card hidden">
+      <h2 id="lblPairTitle">إقران الهاتف ببرنامج جولان</h2>
+      <div class="row" style="margin-bottom:10px">
+        <input type="text" id="inpDevice" maxlength="40" placeholder="Phone">
+        <input type="text" id="inpPin" maxlength="6" inputmode="numeric" dir="ltr" placeholder="000000">
+        <button class="primary" id="btnPair" onclick="doPair()">إقران</button>
+      </div>
+      <div id="pairMsg" class="msg"></div>
+    </div>
+
+    <div id="mainView" class="hidden">
+      <div class="card">
+        <h2 id="lblAddTitle">إضافة رابط جديد</h2>
+        <div class="row" style="margin-bottom:8px">
+          <input type="url" id="inpUrl" dir="ltr" placeholder="https://...">
+        </div>
+        <div class="row">
+          <select id="selQueue"></select>
+          <label style="display:flex;align-items:center;gap:5px;font-size:13px">
+            <input type="checkbox" id="chkStart" checked>
+            <span id="lblStartNow">بدء فوري</span>
+          </label>
+          <button class="primary" id="btnAdd" onclick="addUrl()">إضافة</button>
+        </div>
+        <div id="addMsg" class="msg"></div>
+      </div>
+
+      <div class="card">
+        <h2 id="lblQueuesTitle">الصفوف</h2>
+        <div id="queuesList" class="row"></div>
+      </div>
+
+      <div class="card">
+        <h2 id="lblDownloadsTitle">قائمة التنزيلات</h2>
+        <div id="itemsList"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SERVER_CERT_FP_HEX = "__CERT_FP_HEX__";
+    const I18N = {
+      ar: {
+        brand: "جولان - التحكم عن بُعد",
+        pairTitle: "إقران الهاتف ببرنامج جولان",
+        devicePlaceholder: "اسم الهاتف",
+        pinPlaceholder: "رمز PIN (6 أرقام)",
+        pairBtn: "إقران",
+        addTitle: "إضافة رابط جديد",
+        startNow: "بدء فوري",
+        addBtn: "إضافة",
+        queuesTitle: "الصفوف",
+        downloadsTitle: "قائمة التنزيلات",
+        empty: "لا توجد تنزيلات حالياً.",
+        pause: "إيقاف مؤقت",
+        resume: "استئناف",
+        remove: "إزالة",
+        startQ: "بدء",
+        stopQ: "إيقاف",
+        limiterOn: "محدّد السرعة: مفعّل",
+        limiterOff: "محدّد السرعة: متوقف",
+        logout: "فصل الجهاز",
+        errPair: "فشل الإقران — تحقّق من الرمز أو انتظر انتهاء الحظر.",
+        tlsBadge: "🔒 اتصال HTTPS مشفّر (ECDSA P-256)",
+        fpLabel: "بصمة شهادة الخادم (SHA-256):",
+        fpVerified: "✓ تطابق البصمة مع رمز QR الممسوح",
+        fpMismatch: "⚠ تحذير: البصمة في الرابط (#fp=...) لا تطابق شهادة الخادم الحالية!",
+        tlsWhyTitle: "لماذا يظهر تحذير الشهادة في المتصفح لمرة واحدة؟ وكيف تتحقق من البصمة؟",
+        tlsWhyBody: "يستخدم جولان شهادة TLS ذاتية التوقيع (ECDSA P-256) تُنشأ محلياً على جهازك لتشفير رمز التحكم وكافة الطلبات عبر الشبكة المحلية دون الاعتماد على أي خادم خارجي. ولأن الشهادة محلية وليست صادرة عن جهة شهادات عامة، يعرض متصفح الهاتف تنبيهاً لمرة واحدة عند الاتصال الأول. للتحقق من أمان الاتصال: قارن بصمة SHA-256 المعروضة في تفاصيل شهادة المتصفح أو في رابط QR (#fp=...) مع البصمة الظاهرة في نافذة «التحكم عن بُعد» داخل تطبيق جولان على الكمبيوتر، ثم اختر المتابعة."
+      },
+      en: {
+        brand: "Golan Remote Control",
+        pairTitle: "Pair Phone with Golan",
+        devicePlaceholder: "Device name",
+        pinPlaceholder: "6-digit PIN",
+        pairBtn: "Pair",
+        addTitle: "Add New Download",
+        startNow: "Start now",
+        addBtn: "Add",
+        queuesTitle: "Queues",
+        downloadsTitle: "Downloads",
+        empty: "No downloads yet.",
+        pause: "Pause",
+        resume: "Resume",
+        remove: "Remove",
+        startQ: "Start",
+        stopQ: "Stop",
+        limiterOn: "Limiter: ON",
+        limiterOff: "Limiter: OFF",
+        logout: "Unpair",
+        errPair: "Pairing failed — check PIN or lockout timer.",
+        tlsBadge: "🔒 Encrypted HTTPS Connection (ECDSA P-256)",
+        fpLabel: "Server Certificate Fingerprint (SHA-256):",
+        fpVerified: "✓ Matches scanned QR fingerprint",
+        fpMismatch: "⚠ Warning: URL fingerprint (#fp=...) does not match the current server certificate!",
+        tlsWhyTitle: "Why does the browser warn once, and how do I verify the fingerprint?",
+        tlsWhyBody: "Golan uses a locally generated self-signed TLS certificate (ECDSA P-256) to encrypt your control token and all requests over the local network without relying on any external server. Because this certificate is generated locally on your PC rather than issued by a public certificate authority, your phone's browser shows a one-time warning on first connection. To verify the connection: compare the SHA-256 fingerprint shown in your browser's certificate details or QR link (#fp=...) with the fingerprint displayed in Golan's Remote Control window on your PC, then proceed."
+      }
+    };
+
+    let lang = localStorage.getItem("gdm_remote_lang") || document.documentElement.lang || "ar";
+    if (lang !== "ar" && lang !== "en") lang = "en";
+    let limiterState = false;
+
+    function normalizeHex(str) {
+      return String(str || "").replace(/[^0-9a-fA-F]/g, "").toUpperCase();
+    }
+
+    function checkFragmentFingerprint() {
+      const t = I18N[lang];
+      const statusEl = document.getElementById("lblFpVerifyStatus");
+      const hash = String(location.hash || "");
+      const m = /(?:^|[#&])fp=([^&]+)/i.exec(hash);
+      if (!m) {
+        statusEl.classList.add("hidden");
+        return;
+      }
+      const urlFp = normalizeHex(decodeURIComponent(m[1]));
+      const srvFp = normalizeHex(SERVER_CERT_FP_HEX);
+      statusEl.classList.remove("hidden");
+      if (urlFp.length === 64 && urlFp === srvFp) {
+        statusEl.classList.remove("mismatch");
+        statusEl.textContent = t.fpVerified;
+      } else {
+        statusEl.classList.add("mismatch");
+        statusEl.textContent = t.fpMismatch;
+      }
+    }
+
+    function applyLang() {
+      const t = I18N[lang];
+      document.documentElement.lang = lang;
+      document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+      document.getElementById("lblBrand").textContent = t.brand;
+      document.getElementById("lblPairTitle").textContent = t.pairTitle;
+      document.getElementById("inpDevice").placeholder = t.devicePlaceholder;
+      document.getElementById("inpPin").placeholder = t.pinPlaceholder;
+      document.getElementById("btnPair").textContent = t.pairBtn;
+      document.getElementById("lblAddTitle").textContent = t.addTitle;
+      document.getElementById("lblStartNow").textContent = t.startNow;
+      document.getElementById("btnAdd").textContent = t.addBtn;
+      document.getElementById("lblQueuesTitle").textContent = t.queuesTitle;
+      document.getElementById("lblDownloadsTitle").textContent = t.downloadsTitle;
+      document.getElementById("btnLogout").textContent = t.logout;
+      document.getElementById("btnLimiter").textContent = limiterState ? t.limiterOn : t.limiterOff;
+      document.getElementById("lblTlsBadge").textContent = t.tlsBadge;
+      document.getElementById("lblFpLabel").textContent = t.fpLabel;
+      document.getElementById("lblTlsWhyTitle").textContent = t.tlsWhyTitle;
+      document.getElementById("lblTlsWhyBody").textContent = t.tlsWhyBody;
+      checkFragmentFingerprint();
+    }
+
+    function switchLanguage() {
+      lang = lang === "ar" ? "en" : "ar";
+      localStorage.setItem("gdm_remote_lang", lang);
+      applyLang();
+      refresh();
+    }
+
+    function getToken() { return localStorage.getItem("gdm_remote_token") || ""; }
+    function setToken(tok) {
+      if (tok) localStorage.setItem("gdm_remote_token", tok);
+      else localStorage.removeItem("gdm_remote_token");
+      updateViews();
+    }
+
+    function logout() { setToken(""); }
+
+    function updateViews() {
+      const hasToken = !!getToken();
+      document.getElementById("pairView").classList.toggle("hidden", hasToken);
+      document.getElementById("mainView").classList.toggle("hidden", !hasToken);
+      document.getElementById("btnLogout").classList.toggle("hidden", !hasToken);
+      document.getElementById("btnLimiter").classList.toggle("hidden", !hasToken);
+      const helpDetails = document.getElementById("tlsHelpDetails");
+      if (helpDetails) helpDetails.open = !hasToken;
+    }
+
+    async function api(path, method = "GET", body = null) {
+      const headers = { "Accept": "application/json" };
+      const tok = getToken();
+      if (tok) headers["Authorization"] = "Bearer " + tok;
+      if (body !== null) headers["Content-Type"] = "application/json";
+      const resp = await fetch(path, { method, headers, body: body !== null ? JSON.stringify(body) : null });
+      if (resp.status === 401 && path !== "/api/pair") {
+        setToken("");
+        throw new Error("unauthorized");
+      }
+      return resp;
+    }
+
+    async function doPair() {
+      const pin = document.getElementById("inpPin").value.trim();
+      const device = document.getElementById("inpDevice").value.trim() || navigator.userAgent.slice(0, 32);
+      document.getElementById("pairMsg").textContent = "";
+      try {
+        const resp = await api("/api/pair", "POST", { pin, device });
+        if (!resp.ok) {
+          document.getElementById("pairMsg").textContent = I18N[lang].errPair;
+          return;
+        }
+        const data = await resp.json();
+        setToken(data.token);
+        document.getElementById("inpPin").value = "";
+        refresh();
+      } catch (e) {
+        document.getElementById("pairMsg").textContent = I18N[lang].errPair;
+      }
+    }
+
+    async function addUrl() {
+      const url = document.getElementById("inpUrl").value.trim();
+      const queue = document.getElementById("selQueue").value || null;
+      const start = document.getElementById("chkStart").checked;
+      document.getElementById("addMsg").textContent = "";
+      if (!url) return;
+      const resp = await api("/api/add", "POST", { url, queue, start });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        document.getElementById("addMsg").textContent = err.error || "Error";
+        return;
+      }
+      document.getElementById("inpUrl").value = "";
+      refresh();
+    }
+
+    async function itemAction(id, act) {
+      if (act === "delete") await api("/api/items/" + id, "DELETE");
+      else await api("/api/items/" + id + "/" + act, "POST", {});
+      refresh();
+    }
+
+    async function queueAction(id, act) {
+      await api("/api/queues/" + id + "/" + act, "POST", {});
+      refresh();
+    }
+
+    async function toggleLimiter() {
+      await api("/api/limiter", "POST", { on: !limiterState });
+      refresh();
+    }
+
+    function fmtSize(b) {
+      if (b === null || b === undefined || b < 0) return "—";
+      if (b < 1024) return b + " B";
+      if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+      if (b < 1073741824) return (b / 1048576).toFixed(1) + " MB";
+      return (b / 1073741824).toFixed(2) + " GB";
+    }
+
+    async function refresh() {
+      if (!getToken()) return;
+      try {
+        const [infoRes, itemsRes] = await Promise.all([api("/api/info"), api("/api/items")]);
+        if (!infoRes.ok || !itemsRes.ok) return;
+        const info = await infoRes.json();
+        const items = await itemsRes.json();
+        const t = I18N[lang];
+
+        limiterState = !!info.speedLimitEnabled;
+        document.getElementById("btnLimiter").textContent = limiterState ? t.limiterOn : t.limiterOff;
+        document.getElementById("lblSpeed").textContent = fmtSize(Math.round(info.totalSpeed || 0)) + "/s";
+
+        const sel = document.getElementById("selQueue");
+        const prevQ = sel.value;
+        sel.replaceChildren();
+        const qWrap = document.getElementById("queuesList");
+        qWrap.replaceChildren();
+        for (const q of (info.queues || [])) {
+          const opt = document.createElement("option");
+          opt.value = q.id;
+          opt.textContent = q.name;
+          sel.appendChild(opt);
+
+          const btn = document.createElement("button");
+          btn.textContent = q.name + " · " + (q.running ? t.stopQ : t.startQ);
+          btn.onclick = () => queueAction(q.id, q.running ? "stop" : "start");
+          qWrap.appendChild(btn);
+        }
+        if (prevQ) sel.value = prevQ;
+
+        const list = document.getElementById("itemsList");
+        list.replaceChildren();
+        if (!items.length) {
+          const empty = document.createElement("div");
+          empty.style.color = "var(--muted)";
+          empty.textContent = t.empty;
+          list.appendChild(empty);
+          return;
+        }
+        for (const it of items) {
+          const row = document.createElement("div");
+          row.className = "item";
+
+          const head = document.createElement("div");
+          head.className = "item-head";
+          const nameSpan = document.createElement("span");
+          nameSpan.textContent = it.name;
+          const statusSpan = document.createElement("span");
+          statusSpan.className = "badge";
+          statusSpan.textContent = it.status;
+          head.append(nameSpan, statusSpan);
+
+          const meta = document.createElement("div");
+          meta.className = "item-meta";
+          const sizeSpan = document.createElement("span");
+          sizeSpan.textContent = fmtSize(it.downloaded) + " / " + fmtSize(it.size) + " (" + (it.progress || 0).toFixed(1) + "%)";
+          const speedSpan = document.createElement("span");
+          speedSpan.textContent = it.speed > 0 ? fmtSize(Math.round(it.speed)) + "/s" : "";
+          meta.append(sizeSpan, speedSpan);
+
+          const bar = document.createElement("div");
+          bar.className = "bar";
+          const fill = document.createElement("div");
+          fill.style.width = Math.min(100, Math.max(0, it.progress || 0)) + "%";
+          bar.appendChild(fill);
+
+          const actions = document.createElement("div");
+          actions.className = "row";
+          const bPause = document.createElement("button");
+          bPause.textContent = t.pause;
+          bPause.onclick = () => itemAction(it.id, "pause");
+          const bResume = document.createElement("button");
+          bResume.textContent = t.resume;
+          bResume.onclick = () => itemAction(it.id, "resume");
+          const bDel = document.createElement("button");
+          bDel.className = "danger";
+          bDel.textContent = t.remove;
+          bDel.onclick = () => itemAction(it.id, "delete");
+          actions.append(bPause, bResume, bDel);
+
+          row.append(head, meta, bar, actions);
+          list.appendChild(row);
+        }
+      } catch (e) { }
+    }
+
+    window.addEventListener("hashchange", checkFragmentFingerprint);
+    applyLang();
+    updateViews();
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

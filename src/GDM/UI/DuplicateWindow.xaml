@@ -1,0 +1,19 @@
+<Window x:Class="Golan.Gdm.UI.DuplicateWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="clr-namespace:Golan.Gdm.Core"
+        Title="{core:T main.dup.title}" Width="500" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" Style="{StaticResource GdmWindow}" Icon="/Assets/gdm.ico">
+    <StackPanel Margin="24">
+        <TextBlock Text="{core:T main.dup.heading}" FontSize="17" FontWeight="SemiBold"/>
+        <TextBlock x:Name="ExistingNameText" Margin="0,12,0,0" TextWrapping="Wrap" HorizontalAlignment="Left"/>
+        <TextBlock x:Name="ExistingStatusText" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{DynamicResource Muted}"/>
+        <RadioButton x:Name="NumberRadio" Content="{core:T main.dup.number}" IsChecked="True" GroupName="Choice" Margin="0,16,0,0"/>
+        <RadioButton x:Name="OverwriteRadio" Content="{core:T main.dup.overwrite}" GroupName="Choice" Margin="0,10,0,0"/>
+        <RadioButton x:Name="ResumeRadio" Content="{core:T main.dup.resume}" GroupName="Choice" Margin="0,10,0,0"/>
+        <CheckBox x:Name="RememberBox" Content="{core:T main.dup.remember}" Margin="0,16,0,0"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,20,0,0">
+            <Button Content="{core:T main.dialog.ok}" Style="{StaticResource Primary}" IsDefault="True" Click="Ok_Click" MinWidth="90"/>
+            <Button Content="{core:T main.dialog.cancel}" IsCancel="True" Margin="8,0,0,0" MinWidth="80"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

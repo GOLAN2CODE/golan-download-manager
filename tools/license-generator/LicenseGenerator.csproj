@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>GDMLicenseGenerator</AssemblyName>
+    <RootNamespace>Golan.Gdm.LicenseGenerator</RootNamespace>
+    <ApplicationIcon>..\..\src\GDM\Assets\gdm.ico</ApplicationIcon>
+    <Product>Golan Download Manager — License Generator</Product>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\GDM\Core\Licensing\LicenseKey.cs" Link="Shared\LicenseKey.cs" />
+    <Compile Include="..\..\src\GDM\Core\Licensing\LicensePublicKey.cs" Link="Shared\LicensePublicKey.cs" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,16 @@
+# Permission Justifications for Store Reviewers (Chrome Web Store, Microsoft Edge Add-ons, Mozilla AMO)
+
+This document explains why each permission in `manifest.json` is required by the **Golan Download Manager** extension. All data stays strictly on the user's local machine and is communicated only to the local Windows desktop app (`com.golan.gdm`) via Native Messaging.
+
+| Permission | Reviewer Justification |
+|---|---|
+| `nativeMessaging` | Required to communicate with the locally installed Golan Download Manager desktop application on Windows (`com.golan.gdm`) in order to hand off intercepted downloads, batch links, and media URLs, and to read the user's configured file extensions and site exception rules. |
+| `downloads` | Required to listen for browser download events (`downloads.onCreated`, `downloads.onDeterminingFilename`), pause an in-progress download while asking the local Golan app whether to accept it, and cancel/erase the browser's duplicate download entry only after Golan has confirmed capture (or resume it in the browser if Golan is offline or the user declines). |
+| `contextMenus` | Required to provide the "Download with Golan", "Download all links with Golan", "Download video from this page with Golan", and "Download image with Golan" items in the browser's right-click context menu. |
+| `cookies` | Required to read the cookies belonging to the download URL (`cookies.getAll({ url })`) when handing off a download to the local Golan desktop app so authenticated downloads (such as files behind login sessions) succeed without failing with HTTP 401/403. Cookies are never sent to any remote server by the extension—only to the local Golan app over `nativeMessaging`. |
+| `storage` | Required to persist the user's "Capture downloads" toggle, per-site hidden video-button preferences (`storage.local`), and ephemeral per-tab media detection lists and loop-prevention skip URLs (`storage.session`). |
+| `webRequest` | Required in observe-only mode (`onBeforeRequest` to detect `POST` form downloads that must stay in the browser, and `onResponseStarted` to inspect `Content-Type` / `Content-Length` headers of media streams so the extension popup and floating video button can offer playable streams for download). |
+| `tabs` | Required to associate detected media streams with their originating tab, clear cached media lists when a tab navigates or closes, and query the active tab when the user clicks "Download video from this page" or "Download all links" in the popup. |
+| `scripting` | Required to collect page links (`<a href>`) on the active tab when the user explicitly clicks "Download all links with Golan" in the popup or context menu. |
+| `notifications` | Required to display a desktop notification if the user explicitly triggers a "Download with Golan" action while the local Golan desktop application is not running or returns an error. |
+| `host_permissions` (`http://*/*`, `https://*/*`) | Required so the content script (`content.js`) can render the optional floating "Download this video" button on `<video>` elements, capture `Alt + Click` / `Alt + Ctrl + Click` modifier shortcuts on download links, observe media stream headers via `webRequest`, and pass session cookies for the target download host to the local desktop app. |

@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "default_locale": "en",
+  "name": "__MSG_extName__",
+  "version": "2.5.0",
+  "description": "__MSG_extDescription__",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw54lXt1Mmc/beyJoWYMwK/jf0MSMeg7SCYQDO6xmC2blyXOJAXuvj8cP1/f7Dg/1eJPh5DLm9+1zEZcE63aCKzyoIRKJzJoVe/5qkMVPtdMQLbCE7Oy5J63934G8KYS9/0n7mwvDNy5aiFkJmH5bal0844/P23fcGT/YSGPO/SYCIKo2bTTvbnSDl7bo0VmxuUj9E5SBO1/uE3CZyhue6wOqOy27h6NIIdAAS74rKB0vAgnh1U22YjnHrNkWDIWLgowy0y2/yi9jUUKv8UBk/ADwFtKOdxu06HsQQTUwzdqpBwX1C1Ue04jvI3kjJOnvKklyKC9rJ1UnIYqQM88NtQIDAQAB",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "gdm@golan.local",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": [
+    "nativeMessaging",
+    "downloads",
+    "contextMenus",
+    "cookies",
+    "storage",
+    "webRequest",
+    "tabs",
+    "scripting",
+    "notifications"
+  ],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "all_frames": false,
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "__MSG_extName__",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

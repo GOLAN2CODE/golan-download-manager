@@ -1,0 +1,39 @@
+{
+  "_type": "playlist",
+  "id": "PL123456",
+  "title": "Sample Course Playlist",
+  "uploader": "OpenCourseWare",
+  "webpage_url": "https://www.youtube.com/playlist?list=PL123456",
+  "extractor_key": "YoutubeTab",
+  "thumbnails": [
+    { "url": "https://i.ytimg.com/vi/thumb1/hqdefault.jpg" },
+    { "url": "https://i.ytimg.com/vi/thumb2/maxresdefault.jpg" }
+  ],
+  "entries": [
+    {
+      "id": "dQw4w9WgXcQ",
+      "url": "dQw4w9WgXcQ",
+      "ie_key": "Youtube",
+      "title": "Lesson 1 - Getting Started",
+      "duration": 212.0
+    },
+    {
+      "id": "vid2",
+      "url": "https://www.youtube.com/watch?v=vid2",
+      "title": "Lesson 2 - Deep Dive",
+      "duration": 340.0
+    },
+    {
+      "id": "vid3",
+      "url": "https://www.youtube.com/watch?v=vid3",
+      "title": "Lesson 3 - Advanced Topics",
+      "duration": 510.0
+    },
+    {
+      "id": "bad",
+      "url": "javascript:alert(1)",
+      "title": "Ignored Non-HTTP Entry",
+      "duration": 10.0
+    }
+  ]
+}

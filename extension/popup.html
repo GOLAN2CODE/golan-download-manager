@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-i18n="extName">Golan Download Manager</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="head">
+    <img class="logo" src="icons/icon48.png" alt="" width="36" height="36">
+    <div class="brand">
+      <h1 data-i18n="appShortName">Golan</h1>
+      <span class="sub" data-i18n="appSubtitle">Download Manager</span>
+    </div>
+    <div class="status" id="status" data-state="checking">
+      <span class="dot"></span>
+      <span class="status-text" id="statusText" data-i18n="statusChecking">Checking…</span>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" data-i18n="popupOfflineBanner" hidden>
+    Golan is not running — start the application and try again.
+  </div>
+
+  <section class="card">
+    <label class="toggle-row" for="interceptToggle">
+      <span class="toggle-text">
+        <strong data-i18n="popupInterceptTitle">Capture downloads from browser</strong>
+        <small data-i18n="popupInterceptDesc">Send downloaded files to Golan instead of the browser</small>
+      </span>
+      <span class="switch">
+        <input type="checkbox" id="interceptToggle" checked>
+        <span class="slider"></span>
+      </span>
+    </label>
+  </section>
+
+  <section class="actions">
+    <button class="btn primary" id="mediaPageBtn" type="button">
+      <span class="btn-icon">⬇</span>
+      <span data-i18n="popupDownloadPageVideo">Download video from this page</span>
+    </button>
+    <p class="hint" data-i18n="popupVideoHint">Works with YouTube and over a thousand sites</p>
+    <button class="btn secondary" id="allLinksBtn" type="button" data-i18n="popupDownloadAllLinks">Download all links</button>
+  </section>
+
+  <section class="media">
+    <div class="section-head">
+      <h2 data-i18n="popupPageVideosTitle">Videos on this page</h2>
+      <span class="count" id="mediaCount">0</span>
+    </div>
+    <ul class="media-list" id="mediaList"></ul>
+    <p class="empty" id="mediaEmpty" data-i18n="popupMediaEmpty">No videos detected yet. Play the video and reopen this menu.</p>
+  </section>
+
+  <button class="link-btn" id="unhideBtn" type="button" data-i18n="popupRestoreVideoBtn" hidden>Restore video download button on this site</button>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
