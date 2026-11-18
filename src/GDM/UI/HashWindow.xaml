@@ -11,36 +11,36 @@
         <Border Style="{StaticResource Card}">
             <StackPanel>
                 <TextBlock Text="{v4:T hash.win.file}" Style="{StaticResource Label}"/>
-                <TextBlock x:Name="FileNameText" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,0,8"/>
+                <TextBlock x:Name="FileNameText" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,0,8" HorizontalAlignment="Left"/>
                 <ProgressBar x:Name="HashProgress" Minimum="0" Maximum="100" Height="8" Margin="0,0,0,6"/>
-                <TextBlock x:Name="StatusLabel" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,12"/>
+                <TextBlock x:Name="StatusLabel" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
                 <!-- MD5 -->
                 <TextBlock Text="MD5" Style="{StaticResource Label}"/>
                 <DockPanel Margin="0,0,0,10">
-                    <Button DockPanel.Dock="Right" Content="{v4:T hash.win.copy}" Tag="MD5" Click="Copy_Click" Margin="8,0,0,0" Padding="14,5"/>
-                    <TextBox x:Name="Md5Box" IsReadOnly="True" FlowDirection="LeftToRight" FontFamily="Consolas"/>
+                    <Button x:Name="CopyMd5Btn" DockPanel.Dock="Right" Content="{v4:T hash.win.copy}" Tag="MD5" Click="Copy_Click" Margin="8,0,0,0" Padding="14,5"/>
+                    <TextBox x:Name="Md5Box" IsReadOnly="True" FlowDirection="LeftToRight" FontFamily="Consolas" AutomationProperties.Name="MD5"/>
                 </DockPanel>
 
                 <!-- SHA-1 -->
                 <TextBlock Text="SHA-1" Style="{StaticResource Label}"/>
                 <DockPanel Margin="0,0,0,10">
-                    <Button DockPanel.Dock="Right" Content="{v4:T hash.win.copy}" Tag="SHA1" Click="Copy_Click" Margin="8,0,0,0" Padding="14,5"/>
-                    <TextBox x:Name="Sha1Box" IsReadOnly="True" FlowDirection="LeftToRight" FontFamily="Consolas"/>
+                    <Button x:Name="CopySha1Btn" DockPanel.Dock="Right" Content="{v4:T hash.win.copy}" Tag="SHA1" Click="Copy_Click" Margin="8,0,0,0" Padding="14,5"/>
+                    <TextBox x:Name="Sha1Box" IsReadOnly="True" FlowDirection="LeftToRight" FontFamily="Consolas" AutomationProperties.Name="SHA-1"/>
                 </DockPanel>
 
                 <!-- SHA-256 -->
                 <TextBlock Text="SHA-256" Style="{StaticResource Label}"/>
                 <DockPanel Margin="0,0,0,10">
-                    <Button DockPanel.Dock="Right" Content="{v4:T hash.win.copy}" Tag="SHA256" Click="Copy_Click" Margin="8,0,0,0" Padding="14,5"/>
-                    <TextBox x:Name="Sha256Box" IsReadOnly="True" FlowDirection="LeftToRight" FontFamily="Consolas" TextWrapping="Wrap"/>
+                    <Button x:Name="CopySha256Btn" DockPanel.Dock="Right" Content="{v4:T hash.win.copy}" Tag="SHA256" Click="Copy_Click" Margin="8,0,0,0" Padding="14,5"/>
+                    <TextBox x:Name="Sha256Box" IsReadOnly="True" FlowDirection="LeftToRight" FontFamily="Consolas" TextWrapping="Wrap" AutomationProperties.Name="SHA-256"/>
                 </DockPanel>
 
                 <!-- SHA-512 -->
                 <TextBlock Text="SHA-512" Style="{StaticResource Label}"/>
                 <DockPanel>
-                    <Button DockPanel.Dock="Right" Content="{v4:T hash.win.copy}" Tag="SHA512" Click="Copy_Click" Margin="8,0,0,0" Padding="14,5"/>
-                    <TextBox x:Name="Sha512Box" IsReadOnly="True" FlowDirection="LeftToRight" FontFamily="Consolas" TextWrapping="Wrap"/>
+                    <Button x:Name="CopySha512Btn" DockPanel.Dock="Right" Content="{v4:T hash.win.copy}" Tag="SHA512" Click="Copy_Click" Margin="8,0,0,0" Padding="14,5"/>
+                    <TextBox x:Name="Sha512Box" IsReadOnly="True" FlowDirection="LeftToRight" FontFamily="Consolas" TextWrapping="Wrap" AutomationProperties.Name="SHA-512"/>
                 </DockPanel>
             </StackPanel>
         </Border>
@@ -49,7 +49,8 @@
             <StackPanel>
                 <TextBlock Text="{v4:T hash.win.compare_label}" Style="{StaticResource Label}"/>
                 <TextBox x:Name="CompareBox" FlowDirection="LeftToRight" FontFamily="Consolas"
-                         Tag="{v4:T hash.win.compare_placeholder}" TextChanged="CompareBox_TextChanged"/>
+                         Tag="{v4:T hash.win.compare_placeholder}" TextChanged="CompareBox_TextChanged"
+                         AutomationProperties.Name="{v4:T hash.win.compare_label}"/>
                 <TextBlock x:Name="CompareResultText" FontWeight="SemiBold" Margin="0,8,0,0" Visibility="Collapsed"/>
             </StackPanel>
         </Border>

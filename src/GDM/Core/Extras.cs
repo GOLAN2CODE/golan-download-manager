@@ -59,7 +59,7 @@ public static class Transfer
             {
                 var url = o["url"]?.GetValue<string>() ?? "";
                 bool isMagnet = Torrent.MagnetValidator.IsMagnetUri(url);
-                if (!FileNames.IsHttpUrl(url) && !isMagnet) continue;
+                if (!FileNames.IsNetworkDownloadUrl(url) && !isMagnet) continue;
                 var explicitName = o["fileName"]?.GetValue<string>() ?? "";
                 Torrent.MagnetInfo? parsedMagnet = null;
                 if (isMagnet && !Torrent.MagnetValidator.TryParse(url, out parsedMagnet, out _)) continue;
@@ -103,7 +103,7 @@ public static class Transfer
         }
         try
         {
-            var rx = new System.Text.RegularExpressions.Regex(@"https?://[^\s""'<>]+",
+            var rx = new System.Text.RegularExpressions.Regex(@"(?:https?|ftps?)://[^\s""'<>]+",
                 System.Text.RegularExpressions.RegexOptions.NonBacktracking, TimeSpan.FromSeconds(2));
             foreach (System.Text.RegularExpressions.Match m in rx.Matches(content))
             {
@@ -176,15 +176,16 @@ public static class Transfer
     public static List<string> ExpandBatch(string pattern, bool letters, string from, string to, int width)
     {
         var list = new List<string>();
-        if (!pattern.Contains('*')) return list;
+        if (string.IsNullOrEmpty(pattern) || !pattern.Contains('*')) return list;
+        int safeWidth = Math.Clamp(width, 0, 32);
         if (letters)
         {
-            if (from.Length != 1 || to.Length != 1) return list;
+            if (from.Length != 1 || to.Length != 1 || to[0] < from[0] || to[0] - from[0] > 256) return list;
             for (char c = from[0]; c <= to[0]; c++) list.Add(pattern.Replace("*", c.ToString()));
         }
-        else if (long.TryParse(from, out var a) && long.TryParse(to, out var b) && b >= a && b - a < 100000)
+        else if (long.TryParse(from, out var a) && long.TryParse(to, out var b) && a >= 0 && b >= a && b - a < 100000)
         {
-            for (long n = a; n <= b; n++) list.Add(pattern.Replace("*", n.ToString().PadLeft(Math.Max(0, width), '0')));
+            for (long n = a; n <= b; n++) list.Add(pattern.Replace("*", n.ToString().PadLeft(safeWidth, '0')));
         }
         return list;
     }
@@ -289,16 +290,14 @@ public static class ZipPreview
         using var req = new HttpRequestMessage(HttpMethod.Get, uri);
         req.Headers.Range = new RangeHeaderValue(from, to);
         req.Headers.TryAddWithoutValidation("User-Agent", string.IsNullOrWhiteSpace(item.UserAgent) ? HttpDownloader.DefaultUserAgent : item.UserAgent);
-        bool sameHostAndSecure = Uri.TryCreate(item.Url, UriKind.Absolute, out var origUri)
-            && origUri.Host.Equals(uri.Host, StringComparison.OrdinalIgnoreCase)
+        bool hasOrig = Uri.TryCreate(item.Url, UriKind.Absolute, out var origUri);
+        bool noDowngrade = !hasOrig || !(origUri!.Scheme == Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttps);
+        bool sameHostAndSecure = hasOrig
+            && origUri!.Host.Equals(uri.Host, StringComparison.OrdinalIgnoreCase)
             && origUri.Port == uri.Port
-            && !(origUri.Scheme == Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttps);
-        if (sameHostAndSecure && Uri.TryCreate(item.Referrer, UriKind.Absolute, out var refUri)
-            && (refUri.Scheme == Uri.UriSchemeHttp || refUri.Scheme == Uri.UriSchemeHttps)
-            && !(refUri.Scheme == Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttps))
-        {
-            req.Headers.Referrer = new UriBuilder(refUri) { UserName = "", Password = "", Fragment = "" }.Uri;
-        }
+            && noDowngrade;
+        if (HttpDownloader.ReferrerForRequest(item.Referrer, uri, noDowngrade) is { } safeRef)
+            req.Headers.TryAddWithoutValidation("Referer", safeRef);
         var cookies = HttpDownloader.CookiesForRequest(item, uri, sameHostAndSecure);
         if (cookies.Length > 0) req.Headers.TryAddWithoutValidation("Cookie", cookies);
 

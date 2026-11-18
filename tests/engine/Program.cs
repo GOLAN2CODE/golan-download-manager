@@ -16,6 +16,10 @@ Directory.CreateDirectory(outDir);
 foreach (var f in Directory.GetFiles(outDir)) File.Delete(f);
 if (args.Any(a => string.Equals(a, "--sec-only", StringComparison.OrdinalIgnoreCase)))
     return await Tests_Security.RunAsync(Base, served, outDir, port);
+if (args.Any(a => string.Equals(a, "--review-only", StringComparison.OrdinalIgnoreCase)))
+    return await Tests_ReviewFixes.RunAsync(Base, served, outDir, port) + await Tests_P3.RunAsync(Base, served, outDir, port) + await Tests_UI3b.RunAsync();
+if (args.Any(a => string.Equals(a, "--autoinstall-only", StringComparison.OrdinalIgnoreCase)))
+    return await Tests_UI3b.RunAsync() + await Tests_UI3c.RunAsync() + await Tests_AutoInstall.RunAsync(outDir) + await Tests_AutoInstallUi.RunAsync(outDir);
 
 var bigPath = Path.Combine(served, "big.bin");
 if (!File.Exists(bigPath) || new FileInfo(bigPath).Length != 40 * 1024 * 1024)
@@ -787,5 +791,12 @@ fails += await Tests_Guide.RunAsync(Base, served, outDir, port);
 fails += await Tests_Video.RunAsync(Base, served, outDir, port);
 fails += await Tests_Refresh.RunAsync();
 fails += await Tests_Bridge.RunAsync();
+fails += await Tests_AuditFixes.RunAsync(Base, served, outDir, port);
+fails += await Tests_LinksAndVideo.RunAsync(Base, served, outDir, port);
+fails += await Tests_ReviewFixes.RunAsync(Base, served, outDir, port);
+fails += await Tests_UI3b.RunAsync();
+fails += await Tests_UI3c.RunAsync();
+fails += await Tests_AutoInstall.RunAsync(outDir);
+fails += await Tests_AutoInstallUi.RunAsync(outDir);
 Console.WriteLine(fails == 0 ? $"ALL {passes} PASSED (+ package suites)" : $"{fails} FAILED, {passes} passed");
 return fails;

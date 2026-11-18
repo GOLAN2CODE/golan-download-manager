@@ -13,7 +13,7 @@
             </Border>
             <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
                 <TextBlock Text="{core:T main.add.heading}" FontSize="17" FontWeight="SemiBold"/>
-                <TextBlock x:Name="SubTitle" Text="{core:T main.add.subtitle}" Foreground="{DynamicResource Muted}" FontSize="12"/>
+                <TextBlock x:Name="SubTitle" Text="{core:T main.add.subtitle}" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap"/>
             </StackPanel>
         </DockPanel>
 
@@ -45,8 +45,10 @@
                     <StackPanel Grid.Column="2">
                         <TextBlock Text="{core:T main.add.category}" Style="{StaticResource Label}"/>
                         <DockPanel>
-                            <Button DockPanel.Dock="Right" Content="+" Width="34" Padding="0,6" Margin="6,0,0,0" Click="NewCategory_Click" ToolTip="{core:T main.add.newCategoryTip}"/>
-                            <ComboBox x:Name="CategoryBox" DisplayMemberPath="Name" SelectionChanged="CategoryBox_SelectionChanged"/>
+                            <Button DockPanel.Dock="Right" Content="+" Width="34" Padding="0,6" Margin="6,0,0,0" Click="NewCategory_Click"
+                                    ToolTip="{core:T main.add.newCategoryTip}" AutomationProperties.Name="{core:T main.add.newCategoryTip}"/>
+                            <ComboBox x:Name="CategoryBox" DisplayMemberPath="Name" SelectionChanged="CategoryBox_SelectionChanged"
+                                      AutomationProperties.Name="{core:T main.add.category}"/>
                         </DockPanel>
                     </StackPanel>
                 </Grid>
@@ -59,12 +61,17 @@
                 <TextBlock x:Name="DiskSpaceText" Foreground="{DynamicResource Muted}" FontSize="11.5" Margin="0,4,0,0" Visibility="Collapsed"/>
                 <CheckBox x:Name="RememberPathBox" Margin="0,6,0,0"/>
 
-                <TextBlock Text="{core:T main.add.description}" Style="{StaticResource Label}" Margin="0,10,0,5"/>
-                <TextBox x:Name="DescriptionBox" AutomationProperties.Name="{core:T main.add.descriptionAria}"/>
+                <!-- Rarely needed fields stay folded so a first-time user sees only link, name and folder. -->
+                <Expander x:Name="MoreExpander" Header="{core:T main.add.moreOptions}" IsExpanded="False" Margin="0,10,0,0">
+                    <StackPanel>
+                        <TextBlock Text="{core:T main.add.description}" Style="{StaticResource Label}" Margin="0,10,0,5"/>
+                        <TextBox x:Name="DescriptionBox" AutomationProperties.Name="{core:T main.add.descriptionAria}"/>
 
-                <TextBlock Text="{vb:T win.add.expected_hash}" Style="{StaticResource Label}" Margin="0,10,0,5"/>
-                <TextBox x:Name="ExpectedHashBox" FlowDirection="LeftToRight" AutomationProperties.Name="{vb:T win.add.expected_hash}"/>
-                <CheckBox x:Name="AutoExtractCheck" Content="{vb:T win.add.auto_extract}" ToolTip="{vb:T win.add.auto_extract}" IsThreeState="True" Margin="0,8,0,0"/>
+                        <TextBlock Text="{vb:T win.add.expected_hash}" Style="{StaticResource Label}" Margin="0,10,0,5"/>
+                        <TextBox x:Name="ExpectedHashBox" FlowDirection="LeftToRight" AutomationProperties.Name="{vb:T win.add.expected_hash}"/>
+                        <CheckBox x:Name="AutoExtractCheck" Content="{vb:T win.add.auto_extract}" ToolTip="{vb:T win.add.auto_extract}" IsThreeState="True" Margin="0,8,0,0"/>
+                    </StackPanel>
+                </Expander>
 
                 <Border Background="{DynamicResource SurfaceAlt}" CornerRadius="8" Padding="12,10" Margin="0,14,0,0">
                     <DockPanel>
@@ -79,7 +86,7 @@
 
         <DockPanel Margin="0,18,0,0" LastChildFill="False">
             <Button x:Name="StartBtn" DockPanel.Dock="Left" Style="{StaticResource Primary}" Content="{core:T main.add.start}" IsDefault="True" Click="Start_Click" MinWidth="120"/>
-            <Button DockPanel.Dock="Left" Content="{core:T main.add.later}" Margin="8,0,0,0" Click="Later_Click"/>
+            <Button x:Name="LaterBtn" DockPanel.Dock="Left" Content="{core:T main.add.later}" Margin="8,0,0,0" Click="Later_Click"/>
             <Button DockPanel.Dock="Left" Content="{core:T main.dialog.cancel}" IsCancel="True" Margin="8,0,0,0" Click="Cancel_Click"/>
             <TextBlock DockPanel.Dock="Right" x:Name="ConnText" Foreground="{DynamicResource Muted}" FontSize="12" VerticalAlignment="Center"/>
         </DockPanel>

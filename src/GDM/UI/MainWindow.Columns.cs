@@ -84,7 +84,7 @@ public partial class MainWindow
     {
         var map = ColumnMap();
         bool wasResetToDefault = _settings.Columns.Count > 0 && _settings.Columns.All(c => c.Width == 0);
-        if (wasResetToDefault || _settings.Columns.Count == 0 || _settings.Columns.Any(c => !map.ContainsKey(c.Key)) || map.Keys.Any(k => _settings.Columns.All(c => c.Key != k)))
+        if (wasResetToDefault || _settings.Columns.Count != map.Count || _settings.Columns.Any(c => !map.ContainsKey(c.Key)) || map.Keys.Any(k => _settings.Columns.All(c => c.Key != k)))
             _settings.Columns = ColumnKeys.Select(k => new ColumnPref { Key = k, Visible = DefaultVisible[k] }).ToList();
         int index = 0;
         foreach (var pref in _settings.Columns)

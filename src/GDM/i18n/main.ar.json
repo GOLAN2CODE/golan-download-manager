@@ -387,6 +387,9 @@
   "main.add.later": "تنزيل لاحقًا",
   "main.add.cancel": "إلغاء",
   "main.add.connections": "{0} اتصالات",
+  "main.add.connectionOne": "اتصال واحد",
+  "main.welcome.manualHeader": "التثبيت اليدوي (إذا لم ينجح التلقائي)",
+  "main.add.moreOptions": "خيارات إضافية (وصف، بصمة التحقق، فك الضغط)",
   "main.add.size_label": "الحجم: {0}",
   "main.add.sizeValue": "الحجم: {0}",
   "main.add.from_host": "من: {0}",
@@ -399,8 +402,8 @@
   "main.add.newCategoryTitle": "تصنيف جديد",
   "main.add.new_category_text": "أدخل اسم التصنيف. يمكنك تعديل الامتدادات والمجلد من الخيارات ← الحفظ.",
   "main.add.newCategoryPrompt": "أدخل اسم التصنيف. يمكنك تعديل الامتدادات والمجلد من الخيارات ← الحفظ.",
-  "main.add.err_invalid_url": "يجب أن يبدأ الرابط بـ http أو https",
-  "main.add.invalidUrl": "يجب أن يبدأ الرابط بـ http أو https",
+  "main.add.err_invalid_url": "يجب أن يبدأ الرابط بـ http أو https أو ftp أو magnet:",
+  "main.add.invalidUrl": "يجب أن يبدأ الرابط بـ http أو https أو ftp أو magnet:",
   "main.add.probing": "جارٍ الاتصال بالخادم…",
   "main.add.connecting": "جارٍ الاتصال بالخادم…",
   "main.add.resumable_yes": "يدعم الاستئناف والتنزيل المجزّأ ✓",
@@ -568,5 +571,7 @@
   "refresh.expired.title": "انتهت صلاحية رابط التنزيل",
   "refresh.expired.body": "«{0}» توقف لأن الموقع أنهى صلاحية الرابط. اضغط هنا لتحديث العنوان والمتابعة من حيث توقف.",
   "refresh.timeout": "انتهت مدة الانتظار. أعد المحاولة متى شئت.",
-  "refresh.from_start": "البداية"
+  "refresh.from_start": "البداية",
+  "main.open.missingFile": "لم يُعثر على الملف في موقعه الأصلي. ربما نُقل أو حُذف؛ يمكنك إعادة تنزيله من القائمة.",
+  "main.open.missingFolder": "مجلد الحفظ غير موجود على القرص."
 }

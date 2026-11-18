@@ -415,6 +415,9 @@ public static class TorrentService
         return port;
     }
 
+    public static int ComputeMaxRateBytesPerSec(int speedLimitKB)
+        => speedLimitKB > 0 ? (int)Math.Min(int.MaxValue, speedLimitKB * 1024L) : 0;
+
     public static EngineSettings BuildEngineSettings(AppSettings settings, bool loopbackOnly = false, string? customCacheDir = null)
     {
         string cacheDir = customCacheDir ?? TorrentFastResumeStore.TorrentCacheRoot;
@@ -438,8 +441,8 @@ public static class TorrentService
             ? [EncryptionType.RC4Full, EncryptionType.RC4Header, EncryptionType.PlainText]
             : [EncryptionType.PlainText, EncryptionType.RC4Header, EncryptionType.RC4Full];
 
-        int maxRate = settings.SpeedLimitEnabled && settings.SpeedLimitKB > 0
-            ? settings.SpeedLimitKB * 1024
+        int maxRate = settings.SpeedLimitEnabled
+            ? ComputeMaxRateBytesPerSec(settings.SpeedLimitKB)
             : 0;
 
         var builder = new EngineSettingsBuilder

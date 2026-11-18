@@ -95,6 +95,11 @@ public partial class OptionsWindow
             ItemTemplate = itemTemplate
         };
         list.ItemsSource = _working.Logins;
+        list.MouseDoubleClick += (_, _) =>
+        {
+            if (list.SelectedItem is SiteLogin x && EditLogin(x, isNew: false))
+                list.Items.Refresh();
+        };
         var buttons = EditorButtons(
             () =>
             {
@@ -120,6 +125,16 @@ public partial class OptionsWindow
                 }
                 list.Items.Refresh();
             });
+        var editBtn = buttons.Children.OfType<Button>().ElementAtOrDefault(1);
+        var delBtn = buttons.Children.OfType<Button>().ElementAtOrDefault(2);
+        void SyncLoginButtons()
+        {
+            bool hasSel = list.SelectedItem is SiteLogin;
+            if (editBtn != null) editBtn.IsEnabled = hasSel;
+            if (delBtn != null) delBtn.IsEnabled = hasSel;
+        }
+        list.SelectionChanged += (_, _) => SyncLoginButtons();
+        SyncLoginButtons();
         p.Children.Add(Card(Label(Loc.T("win.options.logins.list_label")), list, buttons));
         return p;
     }
@@ -129,6 +144,7 @@ public partial class OptionsWindow
         var patternVal = x.Pattern;
         var userVal = x.User;
         var passBox = new PasswordBox { FlowDirection = FlowDirection.LeftToRight };
+        System.Windows.Automation.AutomationProperties.SetName(passBox, Loc.T("win.options.logins.password_label"));
 
         var dlg = new Window
         {
@@ -141,10 +157,14 @@ public partial class OptionsWindow
             Style = (Style)FindResource("GdmWindow")
         };
         var panel = new StackPanel { Margin = new Thickness(20) };
+        var patternBox = Text(patternVal, v => patternVal = v, true);
+        System.Windows.Automation.AutomationProperties.SetName(patternBox, Loc.T("win.options.logins.pattern_label"));
+        var userBox = Text(userVal, v => userVal = v, true);
+        System.Windows.Automation.AutomationProperties.SetName(userBox, Loc.T("win.options.logins.user_label"));
         panel.Children.Add(Label(Loc.T("win.options.logins.pattern_label")));
-        panel.Children.Add(Text(patternVal, v => patternVal = v, true));
+        panel.Children.Add(patternBox);
         panel.Children.Add(Label(Loc.T("win.options.logins.user_label")));
-        panel.Children.Add(Text(userVal, v => userVal = v, true));
+        panel.Children.Add(userBox);
         panel.Children.Add(Label(Loc.T("win.options.logins.password_label")));
         panel.Children.Add(passBox);
         if (!isNew && !string.IsNullOrEmpty(x.Password))

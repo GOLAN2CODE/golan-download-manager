@@ -13,9 +13,9 @@
         <DockPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                 <Button Content="{v4:T speedrules.win.add}" Click="Add_Click" Margin="0,0,6,0" Padding="14,6"/>
-                <Button Content="{v4:T speedrules.win.move_up}" Click="MoveUp_Click" Margin="0,0,6,0" Padding="14,6"/>
-                <Button Content="{v4:T speedrules.win.move_down}" Click="MoveDown_Click" Margin="0,0,6,0" Padding="14,6"/>
-                <Button Content="{v4:T speedrules.win.delete}" Click="Delete_Click" Padding="14,6"/>
+                <Button x:Name="MoveUpBtn" Content="{v4:T speedrules.win.move_up}" Click="MoveUp_Click" Margin="0,0,6,0" Padding="14,6"/>
+                <Button x:Name="MoveDownBtn" Content="{v4:T speedrules.win.move_down}" Click="MoveDown_Click" Margin="0,0,6,0" Padding="14,6"/>
+                <Button x:Name="DeleteBtn" Content="{v4:T speedrules.win.delete}" Click="Delete_Click" Padding="14,6"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                 <Button Content="{v4:T speedrules.win.save}" Style="{StaticResource Primary}" IsDefault="True" Click="Save_Click" MinWidth="100"/>
@@ -24,17 +24,61 @@
         </DockPanel>
 
         <Border Style="{StaticResource Card}" Padding="0">
-            <DataGrid x:Name="RulesGrid" IsReadOnly="False" SelectionMode="Single">
-                <DataGrid.Columns>
-                    <DataGridCheckBoxColumn Header="{v4:T speedrules.win.col.enabled}" Binding="{Binding Enabled, UpdateSourceTrigger=PropertyChanged}" Width="80"/>
-                    <DataGridComboBoxColumn x:Name="DaysColumn" Header="{v4:T speedrules.win.col.days}"
-                                            SelectedValueBinding="{Binding DaysPreset, UpdateSourceTrigger=PropertyChanged}"
-                                            SelectedValuePath="Key" DisplayMemberPath="Label" Width="180"/>
-                    <DataGridTextColumn Header="{v4:T speedrules.win.col.from}" Binding="{Binding FromText, UpdateSourceTrigger=LostFocus}" Width="120"/>
-                    <DataGridTextColumn Header="{v4:T speedrules.win.col.to}" Binding="{Binding ToText, UpdateSourceTrigger=LostFocus}" Width="120"/>
-                    <DataGridTextColumn Header="{v4:T speedrules.win.col.limit}" Binding="{Binding LimitKBps, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
-                </DataGrid.Columns>
-            </DataGrid>
+            <Grid>
+                <DataGrid x:Name="RulesGrid" IsReadOnly="False" SelectionMode="Single"
+                          AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                          SelectionChanged="RulesGrid_SelectionChanged"
+                          AutomationProperties.Name="{v4:T speedrules.win.title}">
+                    <DataGrid.Columns>
+                        <DataGridCheckBoxColumn Header="{v4:T speedrules.win.col.enabled}" Binding="{Binding Enabled, UpdateSourceTrigger=PropertyChanged}" Width="80"/>
+                        <DataGridComboBoxColumn x:Name="DaysColumn" Header="{v4:T speedrules.win.col.days}"
+                                                SelectedValueBinding="{Binding DaysPreset, UpdateSourceTrigger=PropertyChanged}"
+                                                SelectedValuePath="Key" DisplayMemberPath="Label" Width="180"/>
+                        <DataGridTextColumn Header="{v4:T speedrules.win.col.from}" Binding="{Binding FromText, UpdateSourceTrigger=LostFocus}" Width="120">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="FlowDirection" Value="LeftToRight"/>
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                            <DataGridTextColumn.EditingElementStyle>
+                                <Style TargetType="TextBox">
+                                    <Setter Property="FlowDirection" Value="LeftToRight"/>
+                                </Style>
+                            </DataGridTextColumn.EditingElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="{v4:T speedrules.win.col.to}" Binding="{Binding ToText, UpdateSourceTrigger=LostFocus}" Width="120">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="FlowDirection" Value="LeftToRight"/>
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                            <DataGridTextColumn.EditingElementStyle>
+                                <Style TargetType="TextBox">
+                                    <Setter Property="FlowDirection" Value="LeftToRight"/>
+                                </Style>
+                            </DataGridTextColumn.EditingElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="{v4:T speedrules.win.col.limit}" Binding="{Binding LimitText, UpdateSourceTrigger=LostFocus}" SortMemberPath="LimitKBps" Width="*">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="FlowDirection" Value="LeftToRight"/>
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                            <DataGridTextColumn.EditingElementStyle>
+                                <Style TargetType="TextBox">
+                                    <Setter Property="FlowDirection" Value="LeftToRight"/>
+                                </Style>
+                            </DataGridTextColumn.EditingElementStyle>
+                        </DataGridTextColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <TextBlock x:Name="EmptyRulesText" Text="{v4:T speedrules.win.empty}"
+                           Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                           TextWrapping="Wrap" Margin="24" IsHitTestVisible="False" Visibility="Collapsed"/>
+            </Grid>
         </Border>
     </DockPanel>
 </Window>

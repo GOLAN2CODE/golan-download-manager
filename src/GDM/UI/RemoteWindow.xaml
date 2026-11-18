@@ -34,16 +34,20 @@
                             <CheckBox x:Name="EnableCheck" Content="{core:TExtension remote.enable}" FontWeight="SemiBold" Margin="0,0,0,14"/>
 
                             <TextBlock Text="{core:TExtension remote.interface}" Style="{StaticResource Label}"/>
-                            <ComboBox x:Name="InterfaceCombo" FlowDirection="LeftToRight" Margin="0,0,0,12"/>
+                            <ComboBox x:Name="InterfaceCombo" FlowDirection="LeftToRight" Margin="0,0,0,12"
+                                      AutomationProperties.Name="{core:TExtension remote.interface}"/>
 
                             <TextBlock Text="{core:TExtension remote.port}" Style="{StaticResource Label}"/>
-                            <TextBox x:Name="PortBox" Width="120" HorizontalAlignment="Left" FlowDirection="LeftToRight" Margin="0,0,0,12"/>
+                            <TextBox x:Name="PortBox" Width="120" HorizontalAlignment="Left" FlowDirection="LeftToRight" Margin="0,0,0,12"
+                                     AutomationProperties.Name="{core:TExtension remote.port}"/>
 
-                            <TextBox x:Name="UrlBox" IsReadOnly="True" FlowDirection="LeftToRight" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                            <TextBox x:Name="UrlBox" IsReadOnly="True" FlowDirection="LeftToRight" FontWeight="SemiBold" Margin="0,0,0,10"
+                                     AutomationProperties.Name="{core:TExtension remote.url_aria}"/>
 
                             <TextBlock x:Name="CertFpTitleText" Style="{StaticResource Label}"/>
                             <TextBox x:Name="CertFpBox" IsReadOnly="True" FlowDirection="LeftToRight" FontFamily="Consolas"
-                                     FontSize="11.5" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                                     FontSize="11.5" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,6"
+                                     AutomationProperties.Name="{core:TExtension remote.tls.title}"/>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                 <Button x:Name="CopyFpBtn" Padding="10,4" Margin="0,0,8,0" Click="CopyFp_Click"/>
                                 <Button x:Name="RegenerateCertBtn" Padding="10,4" Click="RegenerateCert_Click"/>
@@ -67,7 +71,9 @@
 
                             <Border BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8" Padding="8"
                                     Background="{DynamicResource QrQuietZone}" HorizontalAlignment="Center" Margin="0,0,0,10">
-                                <Image x:Name="QrImage" Width="168" Height="168" Stretch="Uniform" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                                <Image x:Name="QrImage" Width="168" Height="168" Stretch="Uniform"
+                                       RenderOptions.BitmapScalingMode="NearestNeighbor"
+                                       AutomationProperties.Name="{core:TExtension remote.pair.header}"/>
                             </Border>
 
                             <TextBlock Text="{core:TExtension remote.pair.qr_hint}" Foreground="{DynamicResource Muted}"
@@ -98,15 +104,23 @@
                                     Padding="12,5" Margin="0,0,8,0" Click="RevokeSelected_Click"/>
                         </DockPanel>
 
-                        <DataGrid x:Name="DevicesGrid" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single"
-                                  MinHeight="130" MaxHeight="200" RowHeaderWidth="0" GridLinesVisibility="Horizontal"
-                                  Background="{DynamicResource Surface}">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="{core:TExtension remote.devices.col.name}" Binding="{Binding Name}" Width="2*"/>
-                                <DataGridTextColumn Header="{core:TExtension remote.devices.col.created}" Binding="{Binding CreatedAtText}" Width="1.5*"/>
-                                <DataGridTextColumn Header="{core:TExtension remote.devices.col.last_seen}" Binding="{Binding LastSeenAtText}" Width="1.5*"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
+                        <Grid>
+                            <DataGrid x:Name="DevicesGrid" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single"
+                                      CanUserAddRows="False" CanUserDeleteRows="False"
+                                      SelectionChanged="DevicesGrid_SelectionChanged"
+                                      MinHeight="130" MaxHeight="200" RowHeaderWidth="0" GridLinesVisibility="Horizontal"
+                                      Background="{DynamicResource Surface}"
+                                      AutomationProperties.Name="{core:TExtension remote.devices.header}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="{core:TExtension remote.devices.col.name}" Binding="{Binding Name}" Width="2*"/>
+                                    <DataGridTextColumn Header="{core:TExtension remote.devices.col.created}" Binding="{Binding CreatedAtText}" Width="1.5*"/>
+                                    <DataGridTextColumn Header="{core:TExtension remote.devices.col.last_seen}" Binding="{Binding LastSeenAtText}" Width="1.5*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <TextBlock x:Name="DevicesEmptyText" Text="{core:TExtension remote.devices.empty}"
+                                       Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       IsHitTestVisible="False" Visibility="Collapsed"/>
+                        </Grid>
                     </StackPanel>
                 </Border>
             </StackPanel>

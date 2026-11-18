@@ -72,11 +72,28 @@ public sealed class DropboxResolver : IHostResolver
         using var headReq = new HttpRequestMessage(HttpMethod.Head, directUri);
         using var resp = await HostResolvers.SendFollowHttpsAsync(http, headReq, ct).ConfigureAwait(false);
 
-        if (resp.StatusCode is HttpStatusCode.MethodNotAllowed or HttpStatusCode.Forbidden)
+        if (resp.StatusCode is HttpStatusCode.BadRequest
+            or HttpStatusCode.Forbidden
+            or HttpStatusCode.NotFound
+            or HttpStatusCode.MethodNotAllowed
+            or HttpStatusCode.NotImplemented)
         {
             using var getReq = new HttpRequestMessage(HttpMethod.Get, directUri);
             getReq.Headers.Range = new RangeHeaderValue(0, 0);
             using var getResp = await HostResolvers.SendFollowHttpsAsync(http, getReq, ct).ConfigureAwait(false);
+            if (getResp.StatusCode is HttpStatusCode.RequestedRangeNotSatisfiable
+                or HttpStatusCode.BadRequest
+                or HttpStatusCode.Forbidden
+                or HttpStatusCode.MethodNotAllowed
+                or HttpStatusCode.NotImplemented)
+            {
+                using var plainReq = new HttpRequestMessage(HttpMethod.Get, directUri);
+                using var plainResp = await HostResolvers.SendFollowHttpsAsync(http, plainReq, ct).ConfigureAwait(false);
+                if (!plainResp.IsSuccessStatusCode) return null;
+                var finalPlain = plainResp.RequestMessage?.RequestUri ?? directUri;
+                var (fnPlain, szPlain) = HostResolvers.ReadResponseMeta(plainResp, u);
+                return new ResolvedLink(finalPlain, fnPlain, szPlain, HostResolvers.EmptyHeaders);
+            }
             if (!getResp.IsSuccessStatusCode) return null;
             var finalGet = getResp.RequestMessage?.RequestUri ?? directUri;
             var (fnGet, szGet) = HostResolvers.ReadResponseMeta(getResp, u);

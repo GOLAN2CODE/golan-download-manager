@@ -136,6 +136,7 @@ public static class MediaArgs
         switch (q)
         {
             case "mp3":
+            case "audio":
                 args.AddRange(["-f", "ba/b", "-x", "--audio-format", "mp3", "--audio-quality", $"{options.Mp3BitrateKbps}K"]);
                 break;
             case "m4a":
@@ -646,6 +647,12 @@ public static class MediaDownloader
 
     public static async Task<MediaInfo> FetchInfoAsync(string url, string userAgent, string referrer, string cookieFile, CancellationToken ct)
     {
+        if (DrmDetector.IsKnownDrmPlatform(url))
+            throw new DownloadException(Loc.T("core.media.err_drm")) { NonFallback = true };
+
+        if (StreamDownloader.IsDirectStreamUrl(url))
+            return await StreamDownloader.InspectAsync(url, userAgent, referrer, cookieFile, ct);
+
         var tempCookie = MaterializeCookieFile(cookieFile);
         int code;
         string output, err;
@@ -811,7 +818,7 @@ public static class MediaDownloader
 
     static List<string> FormatArgs(string quality) => quality switch
     {
-        "mp3" => ["-f", "ba/b", "-x", "--audio-format", "mp3", "--audio-quality", "0"],
+        "mp3" or "audio" => ["-f", "ba/b", "-x", "--audio-format", "mp3", "--audio-quality", "0"],
         "m4a" => ["-f", "ba[ext=m4a]/ba/b", "-x", "--audio-format", "m4a"],
         "best" => ["-f", "bv*+ba/b", "-S", "res,vcodec:h264,acodec:m4a", "--merge-output-format", "mp4"],
         _ when int.TryParse(quality, out var h) =>
@@ -860,6 +867,15 @@ public static class MediaDownloader
     /// <summary>Downloads a media item, reporting progress on the item. Pausing = cancelling (yt-dlp resumes .part files).</summary>
     public static async Task RunAsync(DownloadItem item, SpeedLimiter limiter, CancellationToken ct)
     {
+        if (DrmDetector.IsKnownDrmPlatform(item.Url) || DrmDetector.IsKnownDrmPlatform(item.ParentPage))
+            throw new DownloadException(Loc.T("core.media.err_drm")) { NonFallback = true };
+
+        if (StreamDownloader.IsDirectStreamUrl(item.Url))
+        {
+            await StreamDownloader.RunAsync(item, limiter, ct);
+            return;
+        }
+
         item.Status = DownloadStatus.Connecting;
         item.LastTry = DateTime.Now;
         await MediaTools.EnsureAsync(new Progress<(string Text, double Percent)>(p => item.Stage = p.Text), ct);
@@ -945,6 +961,7 @@ public static class MediaDownloader
 
             using var p = new Process { StartInfo = NewStartInfo(args, item.Url), EnableRaisingEvents = true };
             var errors = new StringBuilder();
+            var fallbackErrors = new List<string>();
             string? finalPath = null;
             long completedStreams = 0, lastDownloaded = 0, lastTotal = 0;
             string lastFormat = "";
@@ -1009,7 +1026,15 @@ public static class MediaDownloader
                 if (string.IsNullOrEmpty(e.Data)) return;
                 lock (errors)
                 {
-                    if (e.Data.StartsWith("ERROR", StringComparison.OrdinalIgnoreCase)) errors.AppendLine(e.Data);
+                    if (e.Data.StartsWith("ERROR", StringComparison.OrdinalIgnoreCase))
+                    {
+                        errors.AppendLine(e.Data);
+                    }
+                    else if (!string.IsNullOrWhiteSpace(e.Data))
+                    {
+                        if (fallbackErrors.Count >= 5) fallbackErrors.RemoveAt(0);
+                        fallbackErrors.Add(e.Data.Trim());
+                    }
                 }
             };
 
@@ -1029,12 +1054,17 @@ public static class MediaDownloader
 
             if (p.ExitCode != 0)
             {
+                string errText;
+                lock (errors)
+                {
+                    errText = errors.Length > 0 ? errors.ToString() : string.Join("\n", fallbackErrors);
+                }
                 if (parallelPieces && !ct.IsCancellationRequested)
                 {
-                    Log.Write("parallel YouTube download failed, continuing the standard way: " + errors.ToString().Trim());
+                    Log.Write("parallel YouTube download failed, continuing the standard way: " + errText.Trim());
                     continue;
                 }
-                throw new DownloadException(TranslateError(errors.ToString()));
+                throw new DownloadException(TranslateError(errText));
             }
 
             if (finalPath != null && IsUnderDir(finalPath, fullSaveDir) && File.Exists(finalPath))
@@ -1127,7 +1157,7 @@ public static class MediaDownloader
         var stem = Path.GetFileNameWithoutExtension(name);
         return quality switch
         {
-            "mp3" => stem + ".mp3",
+            "mp3" or "audio" => stem + ".mp3",
             "m4a" => stem + ".m4a",
             _ when quality == "best" || int.TryParse(quality, out _) => stem + ".mp4",
             _ => name,
@@ -1188,17 +1218,53 @@ public static class MediaDownloader
     {
         var line = err.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.StartsWith("ERROR", StringComparison.OrdinalIgnoreCase)) ?? err.Trim();
         if (line.Length == 0) return Loc.T("core.media.err_generic");
+        if (DrmDetector.IsDrmErrorText(line)) return Loc.T("core.media.err_drm");
         if (line.Contains("Unsupported URL", StringComparison.OrdinalIgnoreCase)) return Loc.T("core.media.err_unsupported");
-        if (line.Contains("Sign in to confirm", StringComparison.OrdinalIgnoreCase) || line.Contains("not a bot", StringComparison.OrdinalIgnoreCase))
+        if (line.Contains("Unable to extract", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("Signature extraction failed", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("nsig extraction failed", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("Please report this issue", StringComparison.OrdinalIgnoreCase))
+            return Loc.T("core.media.err_outdated");
+        if (line.Contains("not a bot", StringComparison.OrdinalIgnoreCase))
             return Loc.T("core.media.err_signin");
+        if (line.Contains("cookies", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("login required", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("members-only", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("subscribers only", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("Join this channel", StringComparison.OrdinalIgnoreCase))
+            return Loc.T("core.media.err_login");
+        if (line.Contains("Sign in to confirm", StringComparison.OrdinalIgnoreCase))
+            return Loc.T("core.media.err_signin");
+        if (line.Contains("not available in your country", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("geo-restricted", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("blocked it in your country", StringComparison.OrdinalIgnoreCase))
+            return Loc.T("core.media.err_geo");
         if (line.Contains("Private video", StringComparison.OrdinalIgnoreCase)) return Loc.T("core.media.err_private");
         if (line.Contains("age", StringComparison.OrdinalIgnoreCase) && line.Contains("restrict", StringComparison.OrdinalIgnoreCase)) return Loc.T("core.media.err_age");
+        if (line.Contains("Premieres in", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("live event will begin", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("this event hasn't started", StringComparison.OrdinalIgnoreCase))
+            return Loc.T("core.media.err_live_upcoming");
         if (line.Contains("Video unavailable", StringComparison.OrdinalIgnoreCase)) return Loc.T("core.media.err_unavailable");
+        if (line.Contains("HTTP Error 429", StringComparison.OrdinalIgnoreCase) || line.Contains("Too Many Requests", StringComparison.OrdinalIgnoreCase))
+            return Loc.T("core.media.err_429");
         if (line.Contains("HTTP Error 403", StringComparison.OrdinalIgnoreCase)) return Loc.T("core.media.err_403");
         if (line.Contains("Unable to download", StringComparison.OrdinalIgnoreCase) || line.Contains("getaddrinfo", StringComparison.OrdinalIgnoreCase))
             return Loc.T("core.media.err_network");
         if (line.Contains("ffmpeg", StringComparison.OrdinalIgnoreCase)) return Loc.T("core.media.err_ffmpeg");
         return line.StartsWith("ERROR:") ? Loc.T("core.media.err_prefix", line[6..].Trim()) : line;
+    }
+
+    public static bool IsToolUpdateRecommended(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return false;
+        if (DrmDetector.IsDrmErrorText(message) || message == Loc.T("core.media.err_drm"))
+            return false;
+        return message == Loc.T("core.media.err_outdated")
+               || message == Loc.T("core.media.err_unsupported")
+               || message == Loc.T("core.media.err_403")
+               || message.Contains("Unable to extract", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("Unsupported URL", StringComparison.OrdinalIgnoreCase);
     }
 
     static string CleanCookieField(string? s)
@@ -1232,17 +1298,22 @@ public static class MediaDownloader
 
     static readonly string[] MediaHosts =
     [
-        "youtube.com", "youtu.be", "facebook.com", "fb.watch", "instagram.com", "tiktok.com", "twitter.com", "x.com",
-        "vimeo.com", "dailymotion.com", "twitch.tv", "soundcloud.com", "reddit.com", "bilibili.com", "pinterest.com",
-        "linkedin.com", "snapchat.com", "rumble.com", "kick.com", "ok.ru", "vk.com", "threads.net", "aparat.com",
+        "youtube.com", "youtu.be", "facebook.com", "fb.watch", "instagram.com", "instagr.am",
+        "tiktok.com", "vm.tiktok.com", "vt.tiktok.com", "twitter.com", "x.com",
+        "vimeo.com", "dailymotion.com", "dai.ly", "twitch.tv", "clips.twitch.tv",
+        "soundcloud.com", "reddit.com", "v.redd.it", "bilibili.com", "pinterest.com",
+        "linkedin.com", "snapchat.com", "rumble.com", "kick.com", "ok.ru", "vk.com",
+        "threads.net", "aparat.com", "odysee.com", "streamable.com", "loom.com",
+        "bandcamp.com", "mixcloud.com", "ted.com",
     ];
 
-    /// <summary>True for page links that need yt-dlp rather than a direct file download.</summary>
+    /// <summary>True for page links that need yt-dlp or stream manifest assembly rather than a direct file download.</summary>
     public static bool LooksLikeMediaPage(string url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return false;
+        if (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps) return false;
+        if (StreamDownloader.IsDirectStreamUrl(url)) return true;
         var host = u.Host.ToLowerInvariant();
-        if (u.AbsolutePath.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase) || u.AbsolutePath.EndsWith(".mpd", StringComparison.OrdinalIgnoreCase)) return true;
         return MediaHosts.Any(h => host == h || host.EndsWith("." + h));
     }
 }

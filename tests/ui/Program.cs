@@ -876,7 +876,10 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Check($"[{lang}] {scenarioName} unhandled exception", false, $"{ex.GetType().Name}: {ex.Message}");
+            // Keep the first frames with line numbers so a flaky failure can be told apart from a real one.
+            var where = string.Join(" | ", (ex.StackTrace ?? "").Split('\n')
+                .Select(l => l.Trim()).Where(l => l.Contains(":line ", StringComparison.Ordinal)).Take(3));
+            Check($"[{lang}] {scenarioName} unhandled exception", false, $"{ex.GetType().Name}: {ex.Message} @ {where}");
         }
         if (_fails > failsBefore)
         {

@@ -11,6 +11,10 @@ out/
 tests/render/out/
 tests/engine/served/big.bin
 tests/engine/served/changing.bin
+tests/engine/served/audit-*
+tests/engine/served/dash/
+tests/engine/served/hls/
+tests/engine/served/site/grabbed_doc.pdf
 
 # Never commit secrets or signing keys
 *.pem

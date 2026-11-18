@@ -62,18 +62,7 @@ public partial class MainWindow
         string text = "";
         try { text = Clipboard.ContainsText() ? Clipboard.GetText() : ""; }
         catch (ExternalException) { /* clipboard locked by another process */ }
-        var rx = new System.Text.RegularExpressions.Regex(@"https?://[^\s""'<>]+",
-            System.Text.RegularExpressions.RegexOptions.NonBacktracking, TimeSpan.FromSeconds(2));
-        List<BatchLink> links = [];
-        try
-        {
-            links = rx.Matches(text)
-                .Select(m => new BatchLink(m.Value.TrimEnd('.', ',', ')', ';'), "")).DistinctBy(l => l.Url).ToList();
-        }
-        catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
-        {
-            Log.Write("batch clipboard regex timeout: " + ex.Message);
-        }
+        var links = ExtractLinksFromText(text);
         if (links.Count == 0) { Confirm.Info(this, Loc.T("main.clipboard.title"), Loc.T("main.clipboard.empty")); return; }
         App.Instance.ShowBatch(links, "", "");
     }
@@ -86,10 +75,10 @@ public partial class MainWindow
         App.Instance.RefreshTrayMenu();
     }
 
-    void ExportGdm_Click(object sender, RoutedEventArgs e) => Export(text: false);
-    void ExportText_Click(object sender, RoutedEventArgs e) => Export(text: true);
+    async void ExportGdm_Click(object sender, RoutedEventArgs e) => await ExportAsync(text: false);
+    async void ExportText_Click(object sender, RoutedEventArgs e) => await ExportAsync(text: true);
 
-    void Export(bool text)
+    async Task ExportAsync(bool text)
     {
         var w = new ExportWindow(Selected.Count, _manager.QueueItems(QueueDef.MainId).Count()) { Owner = this };
         if (w.ShowDialog() != true) return;
@@ -108,19 +97,21 @@ public partial class MainWindow
         if (dlg.ShowDialog(this) != true) return;
         try
         {
-            Transfer.Export(dlg.FileName, items, text);
+            var outPath = dlg.FileName;
+            await Task.Run(() => Transfer.Export(outPath, items, text));
             App.Instance.Notify(Loc.T("main.export.doneTitle"), Loc.T("main.export.doneBody", items.Count));
         }
-        catch (Exception ex) { Confirm.Info(this, Loc.T("main.export.errorTitle"), Loc.T("main.export.errorBody", ex.Message)); }
+        catch (Exception ex) { Confirm.Info(this, Loc.T("main.export.errorTitle"), Loc.T("main.export.errorBody", FriendlyError.Format(ex))); }
     }
 
-    void Import_Click(object sender, RoutedEventArgs e)
+    async void Import_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.OpenFileDialog { Title = Loc.T("main.import.dialogTitle"), Filter = Loc.T("main.import.filter") };
         if (dlg.ShowDialog(this) != true) return;
         List<DownloadItem> items;
-        try { items = Transfer.Import(dlg.FileName, _manager); }
-        catch (Exception ex) { Confirm.Info(this, Loc.T("main.import.errorTitle"), Loc.T("main.import.errorBody", ex.Message)); return; }
+        var inPath = dlg.FileName;
+        try { items = await Task.Run(() => Transfer.Import(inPath, _manager)); }
+        catch (Exception ex) { Confirm.Info(this, Loc.T("main.import.errorTitle"), Loc.T("main.import.errorBody", FriendlyError.Format(ex))); return; }
         items = items.Where(i => _manager.FindDuplicate(i.Url) == null).ToList();
         if (items.Count == 0) { Confirm.Info(this, Loc.T("main.import.errorTitle"), Loc.T("main.import.emptyBody")); return; }
         var pick = App.Instance.PickQueue(this, items.Count);
@@ -362,6 +353,14 @@ public partial class MainWindow
         LangEnMenu.IsChecked = lang == "en";
     }
 
+    void ToggleSpeedGraph()
+    {
+        _settings.ShowSpeedGraph = !_settings.ShowSpeedGraph;
+        SpeedGraphMenu.IsChecked = _settings.ShowSpeedGraph;
+        _settings.Save();
+        UpdateSpeedGraphVisibility();
+    }
+
     void ToggleSpeedGraph_Click(object sender, RoutedEventArgs e)
     {
         _settings.ShowSpeedGraph = SpeedGraphMenu.IsChecked;
@@ -442,27 +441,29 @@ public partial class MainWindow
         await App.Instance.CheckForUpdatesAsync(interactive: true, owner: this);
     }
 
-    void BuildPackages_Click(object sender, RoutedEventArgs e)
+    async void BuildPackages_Click(object sender, RoutedEventArgs e)
     {
         var f = new Microsoft.Win32.OpenFolderDialog();
-        if (f.ShowDialog() != true) return;
+        if (f.ShowDialog(this) != true) return;
         try
         {
             var extDir = Program.FindExtensionSourceDir();
             if (extDir == null)
-                throw new DirectoryNotFoundException("Extension source directory not found.");
-            var res = ExtensionPackager.Build(extDir, f.FolderName);
+                throw new DirectoryNotFoundException(Loc.T("vb.packager.no_source"));
+            var outFolder = f.FolderName;
+            var res = await Task.Run(() => ExtensionPackager.Build(extDir, outFolder));
             Confirm.Info(this,
                 Loc.T($"vb.packager.ok.title"),
                 Loc.T($"vb.packager.ok.body", res.Version, res.ChromeEdgeZipPath, res.FirefoxXpiPath));
         }
         catch (Exception ex)
         {
-            Confirm.Info(this, Loc.T($"vb.packager.ok.title"), Loc.T($"vb.packager.err", ex.Message));
+            var msg = ex is DirectoryNotFoundException ? ex.Message : FriendlyError.Format(ex);
+            Confirm.Info(this, Loc.T($"vb.packager.ok.title"), Loc.T($"vb.packager.err", msg));
         }
     }
 
-    void InstallGdm_Click(object sender, RoutedEventArgs e) => App.Instance.RunUserInstall(this);
+    async void InstallGdm_Click(object sender, RoutedEventArgs e) => await App.Instance.RunUserInstallAsync(this);
 
     void UnregisterBrowser_Click(object sender, RoutedEventArgs e)
     {
@@ -474,9 +475,11 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Confirm.Info(this, Loc.T("main.title"), ex.Message);
+            Confirm.Info(this, Loc.T("main.title"), FriendlyError.Format(ex));
         }
     }
+
+    void HelpAutoInstallExtension_Click(object sender, RoutedEventArgs e) => ExtensionAutoInstallWindow.ShowDialogIdle(this);
 
     void HelpExtension_Click(object sender, RoutedEventArgs e) => App.Instance.ShowBrowserGuide(this);
 
@@ -527,8 +530,19 @@ public partial class MainWindow
     {
         var sel = Selected;
         var item = sel.FirstOrDefault();
+        bool hasSel = sel.Count > 0;
         bool completedFile = item != null && item.Status == DownloadStatus.Completed && File.Exists(item.FullPath);
-        MenuOpen.IsEnabled = MenuOpenWith.IsEnabled = item?.Status == DownloadStatus.Completed;
+        MenuOpen.IsEnabled = item?.Status == DownloadStatus.Completed;
+        MenuOpenWith.IsEnabled = completedFile;
+        MenuOpenFolder.IsEnabled = item != null;
+        MenuResume.IsEnabled = sel.Any(i => !i.IsActive && i.Status != DownloadStatus.Completed);
+        MenuPause.IsEnabled = sel.Any(i => i.IsActive || i.Status == DownloadStatus.Queued);
+        MenuRedownload.IsEnabled = hasSel;
+        MenuShowProgress.IsEnabled = item != null;
+        MenuQueue.IsEnabled = hasSel;
+        MenuCopyUrl.IsEnabled = item != null;
+        MenuDelete.IsEnabled = MenuDeleteWithFile.IsEnabled = hasSel;
+        MenuProperties.IsEnabled = item != null;
         MenuZip.Visibility = item != null && item.Status != DownloadStatus.Completed && item.FileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
             ? Visibility.Visible : Visibility.Collapsed;
         MenuHash.IsEnabled = MenuVerify.IsEnabled = completedFile;
@@ -552,7 +566,12 @@ public partial class MainWindow
     }
 
     void OpenFile_Click(object sender, RoutedEventArgs e) { if (Selected.FirstOrDefault() is { } i) OpenFile(i); }
-    void OpenWith_Click(object sender, RoutedEventArgs e) { if (Selected.FirstOrDefault() is { } i) AfterDownload.OpenWith(i.FullPath); }
+    void OpenWith_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected.FirstOrDefault() is not { } i) return;
+        if (!File.Exists(i.FullPath)) { Confirm.Info(this, Loc.T("main.title"), Loc.T("main.open.missingFile")); return; }
+        AfterDownload.OpenWith(i.FullPath);
+    }
     void OpenFolder_Click(object sender, RoutedEventArgs e) { if (Selected.FirstOrDefault() is { } i) OpenFolder(i); }
     void ShowProgress_Click(object sender, RoutedEventArgs e) { if (Selected.FirstOrDefault() is { } i) App.Instance.ShowProgress(i); }
     void ZipPreview_Click(object sender, RoutedEventArgs e) { if (Selected.FirstOrDefault() is { } i) App.Instance.ShowZipPreview(i); }
@@ -590,12 +609,32 @@ public partial class MainWindow
         AskNewAddress(this, item);
     }
 
+    internal static bool IsValidReplacementUrl(DownloadItem item, string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        if (item.Kind == DownloadKind.Torrent)
+        {
+            return MagnetValidator.TryParse(url, out var mag, out _) && mag != null
+                && (string.IsNullOrEmpty(item.TorrentInfoHash)
+                    || string.Equals(item.TorrentInfoHash, mag.InfoHashHex, StringComparison.OrdinalIgnoreCase));
+        }
+        return FileNames.IsDownloadableUrl(url);
+    }
+
     /// <summary>Manual fallback: paste a new link for the same file.</summary>
     public static void AskNewAddress(Window owner, DownloadItem item)
     {
         var _manager = App.Instance.Manager;
-        var url = InputDialog.Ask(owner, Loc.T("main.changeUrl.title"), Loc.T("main.changeUrl.body"), item.Url);
-        if (url == null || (!FileNames.IsHttpUrl(url) && !MagnetValidator.IsMagnetUri(url))) return;
+        var initial = FileNames.IsDataUrl(item.Url) ? "" : item.Url;
+        var raw = InputDialog.Ask(owner, Loc.T("main.changeUrl.title"), Loc.T("main.changeUrl.body"), initial);
+        if (raw == null) return;
+        var url = raw.Trim();
+        if (url.Length == 0) return;
+        if (!IsValidReplacementUrl(item, url))
+        {
+            Confirm.Info(owner, Loc.T("main.changeUrl.title"), Loc.T("main.add.invalidUrl"));
+            return;
+        }
         _manager.Pause(item);
         if (AddressRefresh.CanRefresh(item) && FileNames.IsHttpUrl(url))
         {
@@ -603,7 +642,7 @@ public partial class MainWindow
             _manager.Save();
             return;
         }
-        item.Url = url.Trim();
+        item.Url = url;
         item.SanitizeMegaUrlIfNeeded();
         item.ErrorMessage = "";
         if (item.Status == DownloadStatus.Error) item.Status = DownloadStatus.Paused;
@@ -612,21 +651,49 @@ public partial class MainWindow
 
     public static void OpenFile(DownloadItem item)
     {
-        if (!File.Exists(item.FullPath)) { OpenFolder(item); return; }
-        try { Process.Start(new ProcessStartInfo(item.FullPath) { UseShellExecute = true }); }
-        catch (Exception ex) { Log.Write("open file failed: " + ex.Message); }
+        if (!File.Exists(item.FullPath))
+        {
+            if (Directory.Exists(item.FullPath))
+            {
+                try
+                {
+                    var psi = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
+                    psi.ArgumentList.Add(item.FullPath);
+                    using var proc = Process.Start(psi);
+                }
+                catch (Exception ex) { Log.Write("open torrent folder failed: " + ex.Message); Confirm.Info(App.Instance.MainView, Loc.T("main.title"), FriendlyError.Format(ex)); }
+            }
+            else if (Directory.Exists(item.SaveDir)) OpenFolder(item);
+            else Confirm.Info(App.Instance.MainView, Loc.T("main.title"), Loc.T("main.open.missingFile"));
+            return;
+        }
+        try
+        {
+            Process.Start(new ProcessStartInfo(item.FullPath) { UseShellExecute = true });
+        }
+        catch (System.ComponentModel.Win32Exception wx) when (wx.NativeErrorCode == 1155)
+        {
+            AfterDownload.OpenWith(item.FullPath);
+        }
+        catch (Exception ex)
+        {
+            Log.Write("open file failed: " + ex.Message);
+            Confirm.Info(App.Instance.MainView, Loc.T("main.title"), FriendlyError.Format(ex));
+        }
     }
 
     public static void OpenFolder(DownloadItem item)
     {
         try
         {
-            if (File.Exists(item.FullPath)) Process.Start("explorer.exe", $"/select,\"{item.FullPath}\"");
+            if (File.Exists(item.FullPath) || Directory.Exists(item.FullPath)) Process.Start("explorer.exe", $"/select,\"{item.FullPath}\"");
             else if (Directory.Exists(item.SaveDir)) Process.Start("explorer.exe", $"\"{item.SaveDir}\"");
+            else Confirm.Info(App.Instance.MainView, Loc.T("main.title"), Loc.T("main.open.missingFolder"));
         }
         catch (Exception ex)
         {
             Log.Write("open folder failed: " + ex.Message);
+            Confirm.Info(App.Instance.MainView, Loc.T("main.title"), FriendlyError.Format(ex));
         }
     }
 }

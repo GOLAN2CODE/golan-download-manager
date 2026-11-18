@@ -402,7 +402,10 @@ public static class Tests_P3
         {
             string propsCode = File.ReadAllText(Path.Combine(gdmRoot, "UI", "PropertiesWindow.xaml.cs"));
             Check("P3-6: PropertiesWindow validates unconfigured UNC folder before Directory.CreateDirectory",
-                propsCode.Contains("IsUnc") || propsCode.Contains(@"StartsWith(@""\\"""));
+                // IsAllowedFolder is the one place that decides network shares (configured ones are allowed).
+                propsCode.Contains("AddDownloadWindow.IsAllowedFolder(newDir") &&
+                propsCode.IndexOf("AddDownloadWindow.IsAllowedFolder(newDir", StringComparison.Ordinal) <
+                propsCode.IndexOf("Directory.CreateDirectory(newDir)", StringComparison.Ordinal));
             Check("P3-6: PropertiesWindow calls PathRegistry.Release(_item.Id) before PathRegistry.Claim",
                 propsCode.Contains("PathRegistry.Release(_item.Id)") &&
                 propsCode.IndexOf("PathRegistry.Release(_item.Id)", StringComparison.Ordinal) <

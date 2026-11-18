@@ -4,7 +4,7 @@
         xmlns:core="clr-namespace:Golan.Gdm.Core"
         xmlns:vb="clr-namespace:Golan.Gdm.Core"
         xmlns:ui="clr-namespace:Golan.Gdm.UI"
-        Title="{core:T main.title}" Height="680" Width="1180" MinWidth="860" MinHeight="480"
+        Title="{core:T main.title}" Height="680" Width="1240" MinWidth="860" MinHeight="480"
         WindowStartupLocation="CenterScreen" Style="{StaticResource GdmWindow}"
         Icon="/Assets/gdm.ico">
     <DockPanel>
@@ -73,7 +73,7 @@
             </MenuItem>
             <MenuItem x:Name="ViewMenu" Header="{core:T main.menu.view}" SubmenuOpened="ViewMenu_Opened">
                 <MenuItem x:Name="HideCategoriesMenu" Header="{core:T main.menu.view.hideCategories}" IsCheckable="True" Click="HideCategories_Click"/>
-                <MenuItem x:Name="SpeedGraphMenu" Header="{vb:T main.menu.speedGraph}" IsCheckable="True" Click="ToggleSpeedGraph_Click"/>
+                <MenuItem x:Name="SpeedGraphMenu" Header="{vb:T main.menu.speedGraph}" InputGestureText="F11" IsCheckable="True" Click="ToggleSpeedGraph_Click"/>
                 <MenuItem x:Name="ViewStatsMenu" Header="{vb:T main.menu.stats}" Click="Stats_Click"/>
                 <Separator/>
                 <MenuItem x:Name="ArrangeMenu" Header="{core:T main.menu.view.arrange}"/>
@@ -96,6 +96,7 @@
                 <MenuItem x:Name="InstallGdmMenu" Header="{vb:T main.menu.installGdm}" Click="InstallGdm_Click"/>
                 <MenuItem x:Name="UnregisterBrowserMenu" Header="{vb:T main.menu.unregisterBrowser}" Click="UnregisterBrowser_Click"/>
                 <Separator/>
+                <MenuItem x:Name="HelpAutoInstallExtensionMenu" Header="{core:T autoinstall.ui.button}" Click="HelpAutoInstallExtension_Click"/>
                 <MenuItem x:Name="HelpExtensionMenu" Header="{core:T guide.menu}" Click="HelpExtension_Click"/>
                 <MenuItem x:Name="HelpGrabberMenu" Header="{core:T main.menu.help.grabber}" Click="Grabber_Click"/>
                 <MenuItem x:Name="HelpSchedulerMenu" Header="{core:T main.menu.help.scheduler}" Click="Scheduler_Click"/>
@@ -118,7 +119,7 @@
                 </StackPanel>
 
                 <TextBox x:Name="SearchBox" DockPanel.Dock="Right" Width="216" VerticalAlignment="Center" Tag="{core:T main.search.placeholder}"
-                         TextChanged="SearchBox_TextChanged" AutomationProperties.Name="{core:T main.search.aria}"/>
+                         TextChanged="SearchBox_TextChanged" KeyDown="SearchBox_KeyDown" AutomationProperties.Name="{core:T main.search.aria}"/>
 
                 <WrapPanel x:Name="Toolbar" Margin="8,0" VerticalAlignment="Center">
                     <Button x:Name="AddUrlBtn" Style="{StaticResource ToolButton}" Tag="&#xE710;" Content="{core:T main.toolbar.addUrl}" Click="AddUrl_Click" ToolTip="{core:T main.toolbar.addUrlTip}"/>
@@ -151,10 +152,10 @@
         <!-- Status bar -->
         <Border DockPanel.Dock="Bottom" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="14,6">
             <DockPanel>
-                <TextBlock x:Name="BrowserStatus" DockPanel.Dock="Left" Foreground="{DynamicResource Muted}" FontSize="12" VerticalAlignment="Center"/>
+                <TextBlock x:Name="BrowserStatus" DockPanel.Dock="Left" Foreground="{DynamicResource Muted}" FontSize="12" VerticalAlignment="Center" Margin="0,0,16,0"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                     <TextBlock x:Name="StatusActive" FontSize="12" VerticalAlignment="Center"/>
-                    <TextBlock Text="  ·  " Foreground="{DynamicResource Muted}" FontSize="12"/>
+                    <TextBlock x:Name="StatusSep" Text="  ·  " Foreground="{DynamicResource Muted}" FontSize="12" Visibility="Collapsed"/>
                     <TextBlock x:Name="StatusSpeed" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AccentText}" VerticalAlignment="Center"/>
                     <TextBlock x:Name="StatusLimiter" FontSize="12" Foreground="{DynamicResource Warning}" Margin="12,0,0,0" VerticalAlignment="Center"/>
                     <TextBlock x:Name="StatusQueue" FontSize="12" Foreground="{DynamicResource Success}" Margin="12,0,0,0" VerticalAlignment="Center"/>
@@ -212,7 +213,7 @@
                         <DataGridTemplateColumn Header="{core:T main.col.name}" Width="3*" SortMemberPath="FileName">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <DockPanel ToolTip="{Binding Url}">
+                                    <DockPanel ToolTip="{Binding DisplayUrl}">
                                         <Border Width="30" Height="30" CornerRadius="8" Background="{DynamicResource AccentSoft}" Margin="0,0,10,0">
                                             <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="15" Foreground="{DynamicResource AccentText}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center" FlowDirection="LeftToRight"/>
@@ -265,29 +266,29 @@
                         <ContextMenu x:Name="RowMenu" Opened="RowMenu_Opened">
                             <MenuItem x:Name="MenuOpen" Header="{core:T main.ctx.openFile}" Click="OpenFile_Click"/>
                             <MenuItem x:Name="MenuOpenWith" Header="{core:T main.ctx.openWith}" Click="OpenWith_Click"/>
-                            <MenuItem Header="{core:T main.ctx.openFolder}" Click="OpenFolder_Click"/>
+                            <MenuItem x:Name="MenuOpenFolder" Header="{core:T main.ctx.openFolder}" Click="OpenFolder_Click"/>
                             <Separator/>
-                            <MenuItem Header="{core:T main.ctx.resume}" Click="Resume_Click"/>
-                            <MenuItem Header="{core:T main.ctx.pause}" Click="Pause_Click"/>
-                            <MenuItem Header="{core:T main.ctx.redownload}" Click="Redownload_Click"/>
-                            <MenuItem Header="{core:T main.ctx.showProgress}" Click="ShowProgress_Click"/>
+                            <MenuItem x:Name="MenuResume" Header="{core:T main.ctx.resume}" Click="Resume_Click"/>
+                            <MenuItem x:Name="MenuPause" Header="{core:T main.ctx.pause}" Click="Pause_Click"/>
+                            <MenuItem x:Name="MenuRedownload" Header="{core:T main.ctx.redownload}" Click="Redownload_Click"/>
+                            <MenuItem x:Name="MenuShowProgress" Header="{core:T main.ctx.showProgress}" Click="ShowProgress_Click"/>
                             <Separator/>
                             <MenuItem x:Name="MenuQueue" Header="{core:T main.ctx.addToQueue}"/>
                             <MenuItem x:Name="MenuUnqueue" Header="{core:T main.ctx.removeFromQueue}" Click="Unqueue_Click"/>
                             <MenuItem x:Name="MenuUp" Header="{core:T main.ctx.moveUp}" Click="MoveUp_Click"/>
                             <MenuItem x:Name="MenuDown" Header="{core:T main.ctx.moveDown}" Click="MoveDown_Click"/>
                             <Separator/>
-                            <MenuItem Header="{core:T main.ctx.copyUrl}" Click="CopyUrl_Click"/>
+                            <MenuItem x:Name="MenuCopyUrl" Header="{core:T main.ctx.copyUrl}" Click="CopyUrl_Click"/>
                             <MenuItem x:Name="MenuRefreshUrl" Header="{core:T main.ctx.changeUrl}" Click="ChangeUrl_Click" AutomationProperties.AutomationId="MenuRefreshUrl"/>
                             <MenuItem x:Name="MenuZip" Header="{core:T main.ctx.zipPreview}" Click="ZipPreview_Click"/>
                             <MenuItem x:Name="MenuHash" Header="{vb:T main.ctx.hash}" Click="HashItem_Click"/>
                             <MenuItem x:Name="MenuVerify" Header="{vb:T main.ctx.verifyNow}" Click="VerifyItem_Click"/>
                             <MenuItem x:Name="MenuExtract" Header="{vb:T main.ctx.extractNow}" Click="ExtractItem_Click"/>
                             <Separator/>
-                            <MenuItem Header="{core:T main.ctx.delete}" Click="Delete_Click"/>
-                            <MenuItem Header="{core:T main.ctx.deleteWithFile}" Click="DeleteWithFile_Click"/>
+                            <MenuItem x:Name="MenuDelete" Header="{core:T main.ctx.delete}" Click="Delete_Click"/>
+                            <MenuItem x:Name="MenuDeleteWithFile" Header="{core:T main.ctx.deleteWithFile}" Click="DeleteWithFile_Click"/>
                             <Separator/>
-                            <MenuItem Header="{core:T main.ctx.properties}" Click="Properties_Click"/>
+                            <MenuItem x:Name="MenuProperties" Header="{core:T main.ctx.properties}" Click="Properties_Click"/>
                         </ContextMenu>
                     </DataGrid.ContextMenu>
                 </DataGrid>

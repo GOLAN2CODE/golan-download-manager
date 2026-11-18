@@ -9,8 +9,10 @@ namespace Golan.Gdm.UI;
 
 public partial class RemoteWindow : Window
 {
+    static readonly SemaphoreSlim _serverLock = new(1, 1);
     static RemoteServer? _activeServer;
     static RemoteAuthManager? _activeAuth;
+    static List<PairedDevice>? _activeAuthDevices;
 
     readonly DownloadManager _manager;
     readonly DispatcherTimer _uiTimer;
@@ -63,32 +65,51 @@ public partial class RemoteWindow : Window
 
     static RemoteAuthManager EnsureAuth(AppSettings settings)
     {
-        _activeAuth ??= new RemoteAuthManager(settings.RemoteDevices, () => settings.Save());
+        if (_activeAuth == null || !ReferenceEquals(_activeAuthDevices, settings.RemoteDevices))
+        {
+            _activeAuthDevices = settings.RemoteDevices;
+            _activeAuth = new RemoteAuthManager(settings.RemoteDevices, () => settings.Save());
+        }
         return _activeAuth;
     }
 
     public static async Task EnsureServerStateAsync(DownloadManager manager)
     {
-        var settings = manager.Settings;
-        var auth = EnsureAuth(settings);
-
-        if (_activeServer != null)
+        await _serverLock.WaitAsync();
+        try
         {
-            await _activeServer.StopAsync();
-            _activeServer = null;
+            var settings = manager.Settings;
+            var auth = EnsureAuth(settings);
+
+            if (_activeServer != null)
+            {
+                await _activeServer.StopAsync();
+                _activeServer = null;
+            }
+
+            if (!settings.RemoteEnabled)
+                return;
+
+            if (!IPAddress.TryParse(settings.RemoteBindAddress, out var bindIp) || !RemoteServer.IsAllowedBindAddress(bindIp))
+                bindIp = IPAddress.Loopback;
+
+            int port = settings.RemotePort is >= 1024 and <= 65535 ? settings.RemotePort : 8765;
+            var target = new DownloadManagerRemoteTarget(manager);
+            var srv = new RemoteServer(target, auth, bindIp, port);
+            await srv.StartAsync();
+            _activeServer = srv;
         }
+        finally
+        {
+            _serverLock.Release();
+        }
+    }
 
-        if (!settings.RemoteEnabled)
-            return;
-
-        if (!IPAddress.TryParse(settings.RemoteBindAddress, out var bindIp) || !RemoteServer.IsAllowedBindAddress(bindIp))
-            bindIp = IPAddress.Loopback;
-
-        int port = settings.RemotePort is >= 1024 and <= 65535 ? settings.RemotePort : 8765;
-        var target = new DownloadManagerRemoteTarget(manager);
-        var srv = new RemoteServer(target, auth, bindIp, port);
-        await srv.StartAsync();
-        _activeServer = srv;
+    void SetStatusMessage(string text, string brushKey)
+    {
+        StatusText.Text = text;
+        if (TryFindResource(brushKey) is System.Windows.Media.Brush b)
+            StatusText.Foreground = b;
     }
 
     async void Apply_Click(object sender, RoutedEventArgs e)
@@ -96,13 +117,13 @@ public partial class RemoteWindow : Window
         var selectedIp = InterfaceCombo.SelectedItem as string ?? "127.0.0.1";
         if (!IPAddress.TryParse(selectedIp, out var ip) || !RemoteServer.IsAllowedBindAddress(ip))
         {
-            StatusText.Text = V5T("remote.status.error", V5T("remote.err.invalid_ip"));
+            SetStatusMessage(V5T("remote.status.error", V5T("remote.err.invalid_ip")), "Danger");
             return;
         }
 
         if (!int.TryParse(PortBox.Text.Trim(), out int port) || port is < 1024 or > 65535)
         {
-            StatusText.Text = V5T("remote.status.error", V5T("remote.err.invalid_port"));
+            SetStatusMessage(V5T("remote.status.error", V5T("remote.err.invalid_port")), "Danger");
             return;
         }
 
@@ -119,7 +140,7 @@ public partial class RemoteWindow : Window
         }
         catch (Exception ex)
         {
-            StatusText.Text = V5T("remote.status.error", ex.Message);
+            SetStatusMessage(V5T("remote.status.error", FriendlyError.Format(ex)), "Danger");
         }
         finally
         {
@@ -132,9 +153,16 @@ public partial class RemoteWindow : Window
         try
         {
             if (!string.IsNullOrWhiteSpace(CertFpBox.Text))
+            {
+                App.Instance?.MainView?.SuppressClipboard();
                 Clipboard.SetText(CertFpBox.Text);
+                CopyFpBtn.Content = Loc.T("hash.win.copied");
+            }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Log.Write("remote copy fingerprint failed: " + ex.Message);
+        }
     }
 
     async void RegenerateCert_Click(object sender, RoutedEventArgs e)
@@ -151,11 +179,12 @@ public partial class RemoteWindow : Window
             if (_manager.Settings.RemoteEnabled)
                 await EnsureServerStateAsync(_manager);
             RefreshQrAndStatus();
-            StatusText.Text = V5T("remote.tls.regenerated");
+            CopyFpBtn.Content = V5T("remote.tls.copyFp");
+            SetStatusMessage(V5T("remote.tls.regenerated"), "Success");
         }
         catch (Exception ex)
         {
-            StatusText.Text = V5T("remote.status.error", ex.Message);
+            SetStatusMessage(V5T("remote.status.error", FriendlyError.Format(ex)), "Danger");
         }
         finally
         {
@@ -171,6 +200,16 @@ public partial class RemoteWindow : Window
         RefreshLiveState();
     }
 
+    void DevicesGrid_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        => SyncDeviceButtons();
+
+    void SyncDeviceButtons()
+    {
+        RevokeSelectedBtn.IsEnabled = DevicesGrid.SelectedItem is DeviceRow;
+        RevokeAllBtn.IsEnabled = _deviceRows.Count > 0;
+        DevicesEmptyText.Visibility = _deviceRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     void RevokeSelected_Click(object sender, RoutedEventArgs e)
     {
         if (DevicesGrid.SelectedItem is not DeviceRow row) return;
@@ -181,6 +220,9 @@ public partial class RemoteWindow : Window
 
     void RevokeAll_Click(object sender, RoutedEventArgs e)
     {
+        if (_deviceRows.Count == 0) return;
+        if (!Confirm.Ask(this, V5T("remote.devices.revoke_all"), V5T("remote.devices.revoke_all_confirm"), V5T("remote.devices.revoke_all"), danger: true))
+            return;
         var auth = EnsureAuth(_manager.Settings);
         auth.RevokeAllDevices();
         RefreshLiveState();
@@ -199,19 +241,28 @@ public partial class RemoteWindow : Window
         string fpColon;
         string qrUrl;
 
-        if (_activeServer is { IsRunning: true } && _activeServer.BindAddress.Equals(ipAddr) && _activeServer.Port == port)
+        try
         {
-            fpGroups = _activeServer.CertificateFingerprintGroups;
-            fpColon = _activeServer.CertificateFingerprintColon;
-            qrUrl = _activeServer.QrPayloadUri;
+            if (_activeServer is { IsRunning: true } && _activeServer.BindAddress.Equals(ipAddr) && _activeServer.Port == port)
+            {
+                fpGroups = _activeServer.CertificateFingerprintGroups;
+                fpColon = _activeServer.CertificateFingerprintColon;
+                qrUrl = _activeServer.QrPayloadUri;
+            }
+            else
+            {
+                var additionalIps = ipAddr.Equals(IPAddress.Loopback) ? null : RemoteServer.GetLocalIpv4Interfaces();
+                using var cert = RemoteTls.EnsureCertificate(ipAddr, additionalIps);
+                fpGroups = RemoteTls.FormatFingerprintShortGroups(cert);
+                fpColon = RemoteTls.FormatFingerprintColonBytes(cert);
+                qrUrl = RemoteTls.BuildPairingUrl(new Uri($"https://{ipAddr}:{port}/"), cert);
+            }
         }
-        else
+        catch (Exception ex)
         {
-            var additionalIps = ipAddr.Equals(IPAddress.Loopback) ? null : RemoteServer.GetLocalIpv4Interfaces();
-            using var cert = RemoteTls.EnsureCertificate(ipAddr, additionalIps);
-            fpGroups = RemoteTls.FormatFingerprintShortGroups(cert);
-            fpColon = RemoteTls.FormatFingerprintColonBytes(cert);
-            qrUrl = RemoteTls.BuildPairingUrl(new Uri($"https://{ipAddr}:{port}/"), cert);
+            Log.Write("remote cert load failed: " + ex.Message);
+            SetStatusMessage(V5T("remote.status.error", FriendlyError.Format(ex)), "Danger");
+            return;
         }
 
         UrlBox.Text = qrUrl;
@@ -222,12 +273,15 @@ public partial class RemoteWindow : Window
         {
             QrImage.Source = QrCode.RenderWpfBitmap(qrUrl, moduleScale: 6, quietZone: 4);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Log.Write("remote qr render failed: " + ex.Message);
+        }
 
         if (_activeServer is { IsRunning: true })
-            StatusText.Text = V5T("remote.status.running", _activeServer.BaseUri.AbsoluteUri);
+            SetStatusMessage(V5T("remote.status.running", _activeServer.BaseUri.AbsoluteUri), "Success");
         else
-            StatusText.Text = V5T("remote.status.stopped");
+            SetStatusMessage(V5T("remote.status.stopped"), "Muted");
     }
 
     void RefreshLiveState()
@@ -269,6 +323,7 @@ public partial class RemoteWindow : Window
             if (selectedId != null)
                 DevicesGrid.SelectedItem = _deviceRows.FirstOrDefault(r => r.Id == selectedId);
         }
+        SyncDeviceButtons();
     }
 
     void Close_Click(object sender, RoutedEventArgs e) => Close();

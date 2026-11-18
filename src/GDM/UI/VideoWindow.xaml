@@ -16,7 +16,7 @@
             <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="0,0,0,6"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource BrandFocusVisual}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
@@ -96,10 +96,10 @@
                       HorizontalAlignment="Left" AutomationProperties.AutomationId="SmartModeBox"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                 <Button x:Name="DownloadButton" Style="{StaticResource Primary}" Content="{core:T win.video.download_now}" Click="Download_Click"
-                        IsEnabled="False" AutomationProperties.Name="{core:T win.video.download_now_aria}"/>
+                        IsDefault="True" IsEnabled="False" AutomationProperties.Name="{core:T win.video.download_now_aria}"/>
                 <Button x:Name="QueueButton" Content="{core:T win.video.download_later}" Margin="8,0,0,0" Click="Queue_Click"
                         IsEnabled="False" AutomationProperties.Name="{core:T win.video.download_later_aria}"/>
-                <Button Content="{core:T win.video.cancel}" Margin="8,0,0,0" Click="Cancel_Click" AutomationProperties.Name="{core:T win.video.cancel}"/>
+                <Button Content="{core:T win.video.cancel}" IsCancel="True" Margin="8,0,0,0" Click="Cancel_Click" AutomationProperties.Name="{core:T win.video.cancel}"/>
             </StackPanel>
             </StackPanel>
         </Border>
@@ -141,8 +141,12 @@
                         <TextBlock x:Name="ErrorText" Foreground="{DynamicResource DangerInk}" TextWrapping="Wrap" Margin="0,6,0,9"/>
                         <TextBlock x:Name="DirectHint" Text="{core:T win.video.direct_hint}"
                                    Foreground="{DynamicResource DangerInk}" Visibility="Collapsed" Margin="0,0,0,9"/>
-                        <Button x:Name="RetryButton" Content="{core:T win.video.retry}" HorizontalAlignment="Left"
-                                Click="Fetch_Click"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="RetryButton" Content="{core:T win.video.retry}" HorizontalAlignment="Left"
+                                    Click="Fetch_Click"/>
+                            <Button x:Name="UpdateToolButton" Content="{core:T win.video.update_tool}" HorizontalAlignment="Left"
+                                    Margin="8,0,0,0" Visibility="Collapsed" Click="UpdateTool_Click"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
@@ -166,7 +170,7 @@
                         </Border>
                         <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
                             <TextBlock x:Name="TitleText" FontSize="16" FontWeight="Bold" TextWrapping="Wrap"
-                                       MaxHeight="46" TextTrimming="CharacterEllipsis"/>
+                                       MaxHeight="52" TextTrimming="CharacterEllipsis"/>
                             <TextBlock x:Name="MetaText" Foreground="{DynamicResource Muted}" Margin="0,7,0,0"
                                        TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
                         </StackPanel>
@@ -179,7 +183,8 @@
                             <TextBlock Text="{core:T win.video.choose_quality}" Style="{StaticResource SectionTitle}"/>
                             <ListBox x:Name="QualityList" BorderThickness="0" Background="Transparent"
                                      ItemContainerStyle="{StaticResource QualityItem}" ItemTemplate="{StaticResource QualityTemplate}"
-                                     SelectionChanged="QualityList_SelectionChanged" AutomationProperties.Name="{core:T win.video.quality_aria}"/>
+                                     SelectionChanged="QualityList_SelectionChanged" MouseDoubleClick="QualityList_MouseDoubleClick"
+                                     AutomationProperties.Name="{core:T win.video.quality_aria}"/>
                             <StackPanel x:Name="Mp3BitratePanel" Orientation="Horizontal" Visibility="Collapsed" Margin="0,8,0,0">
                                 <TextBlock Text="{v2:T video.mp3_bitrate}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <ComboBox x:Name="Mp3BitrateBox" Width="130" SelectedIndex="1">
@@ -194,11 +199,11 @@
                     <Border x:Name="PlaylistCard" Style="{StaticResource Card}" Visibility="Collapsed" Margin="0,0,0,12">
                         <StackPanel>
                             <DockPanel Margin="0,0,0,8">
-                                <TextBlock Text="{core:T win.video.playlist_header}" Style="{StaticResource SectionTitle}" Margin="0"/>
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                                     <Button Content="{core:T win.video.select_all}" Padding="8,4" Click="SelectAll_Click"/>
                                     <Button Content="{core:T win.video.select_none}" Padding="8,4" Margin="6,0,0,0" Click="SelectNone_Click"/>
                                 </StackPanel>
+                                <TextBlock Text="{core:T win.video.playlist_header}" Style="{StaticResource SectionTitle}" Margin="0,0,10,0" VerticalAlignment="Center"/>
                             </DockPanel>
                             <WrapPanel Margin="0,0,0,8" VerticalAlignment="Center">
                                 <TextBlock Text="{v2:T video.playlist_from}" VerticalAlignment="Center" Margin="0,0,6,0"/>
@@ -268,16 +273,16 @@
                             </Grid>
                         </StackPanel>
                     </Border>
-
-                    <Expander x:Name="DirectExpander" Visibility="Collapsed" IsExpanded="False" Margin="0,0,0,12">
-                        <Expander.Header>
-                            <TextBlock x:Name="DirectHeader" FontWeight="SemiBold"/>
-                        </Expander.Header>
-                        <Border Style="{StaticResource Card}" Padding="14" Margin="0,7,0,0">
-                            <ItemsControl x:Name="DirectList" ItemTemplate="{StaticResource DirectTemplate}"/>
-                        </Border>
-                    </Expander>
                 </StackPanel>
+
+                <Expander x:Name="DirectExpander" Visibility="Collapsed" IsExpanded="False" Margin="0,0,0,12">
+                    <Expander.Header>
+                        <TextBlock x:Name="DirectHeader" FontWeight="SemiBold"/>
+                    </Expander.Header>
+                    <Border Style="{StaticResource Card}" Padding="14" Margin="0,7,0,0">
+                        <ItemsControl x:Name="DirectList" ItemTemplate="{StaticResource DirectTemplate}"/>
+                    </Border>
+                </Expander>
             </StackPanel>
         </ScrollViewer>
     </DockPanel>

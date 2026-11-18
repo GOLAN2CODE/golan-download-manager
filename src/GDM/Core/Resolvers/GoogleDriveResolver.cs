@@ -8,6 +8,7 @@ public sealed class GoogleDriveResolver : IHostResolver
 {
     static readonly TimeSpan RxTimeout = TimeSpan.FromSeconds(2);
     static readonly Regex FilePathRx = new(@"/file/d/([a-zA-Z0-9_-]{6,128})(?:/|$|\?)", RegexOptions.Compiled | RegexOptions.CultureInvariant, RxTimeout);
+    static readonly Regex DocsPathRx = new(@"/(document|spreadsheets|presentation)/d/([a-zA-Z0-9_-]{6,128})(?:/|$|\?)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RxTimeout);
     static readonly Regex FolderPathRx = new(@"/drive/(?:u/\d+/)?folders/([a-zA-Z0-9_-]+)", RegexOptions.Compiled | RegexOptions.CultureInvariant, RxTimeout);
     static readonly Regex ScriptBlockRx = new(@"<script\b[^>]*>[\s\S]*?</script\b[^>]*>", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RxTimeout);
     static readonly Regex FormTagBlockRx = new(@"<form\b([^>]*)>([\s\S]*?)</form\b[^>]*>", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RxTimeout);
@@ -24,14 +25,44 @@ public sealed class GoogleDriveResolver : IHostResolver
         "export",
         "confirm",
         "uuid",
+        "at",
+        "resourcekey",
     };
 
     public bool CanHandle(Uri u)
     {
         if (u is null || !u.IsAbsoluteUri) return false;
         if (!string.Equals(u.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) return false;
+        if (TryRewriteGoogleDocsExport(u, out _)) return true;
         bool ok = TryExtractFileId(u, out _, out bool isFolder);
         return ok || isFolder;
+    }
+
+    public static bool TryRewriteGoogleDocsExport(Uri u, out Uri? exportUri)
+    {
+        exportUri = null;
+        if (u is null || !u.IsAbsoluteUri) return false;
+        if (!string.Equals(u.Host, "docs.google.com", StringComparison.OrdinalIgnoreCase)) return false;
+
+        var m = DocsPathRx.Match(u.AbsolutePath);
+        if (!m.Success) return false;
+
+        var docKind = m.Groups[1].Value.ToLowerInvariant();
+        var docId = m.Groups[2].Value;
+        var requestedFmt = GetQueryParam(u.Query, "format");
+        var defaultFmt = docKind switch
+        {
+            "document" => "docx",
+            "spreadsheets" => "xlsx",
+            "presentation" => "pptx",
+            _ => "pdf",
+        };
+        var fmt = !string.IsNullOrWhiteSpace(requestedFmt) && Regex.IsMatch(requestedFmt, @"^[a-zA-Z0-9]{2,8}$")
+            ? requestedFmt.ToLowerInvariant()
+            : defaultFmt;
+
+        exportUri = new Uri($"https://docs.google.com/{docKind}/d/{Uri.EscapeDataString(docId)}/export?format={Uri.EscapeDataString(fmt)}");
+        return true;
     }
 
     public static bool TryExtractFileId(Uri u, out string fileId, out bool isFolder)
@@ -113,7 +144,7 @@ public sealed class GoogleDriveResolver : IHostResolver
                 if (!parameters.TryGetValue("id", out var idVal) || !IsValidDriveId(idVal))
                     continue;
 
-                var orderedKeys = new[] { "id", "export", "confirm", "uuid" };
+                var orderedKeys = new[] { "id", "export", "confirm", "uuid", "at", "resourcekey" };
                 var sb = new StringBuilder();
                 foreach (var k in orderedKeys)
                 {
@@ -153,14 +184,30 @@ public sealed class GoogleDriveResolver : IHostResolver
 
     public async Task<ResolvedLink?> ResolveAsync(Uri u, HttpMessageInvoker http, CancellationToken ct)
     {
+        if (TryRewriteGoogleDocsExport(u, out var exportUri) && exportUri != null)
+        {
+            var fmt = GetQueryParam(exportUri.Query, "format") ?? "pdf";
+            using var docReq = new HttpRequestMessage(HttpMethod.Get, exportUri);
+            using var docResp = await HostResolvers.SendFollowHttpsAsync(http, docReq, ct).ConfigureAwait(false);
+            if (!docResp.IsSuccessStatusCode) return null;
+            var docMedia = docResp.Content.Headers.ContentType?.MediaType ?? "";
+            if (string.Equals(docMedia, "text/html", StringComparison.OrdinalIgnoreCase)) return null;
+            var docFinal = docResp.RequestMessage?.RequestUri ?? exportUri;
+            var (docName, docSize) = HostResolvers.ReadResponseMeta(docResp, docFinal);
+            docName ??= $"document.{fmt}";
+            return new ResolvedLink(docFinal, docName, docSize, HostResolvers.EmptyHeaders);
+        }
+
         if (!TryExtractFileId(u, out var fileId, out bool isFolder))
         {
             if (isFolder)
-                throw new DownloadException(Loc.T("err.resolver.unsupported"));
+                throw new DownloadException(Loc.T("err.resolver.unsupported")) { NonFallback = true };
             return null;
         }
 
-        var directUri = new Uri($"https://drive.usercontent.google.com/download?id={Uri.EscapeDataString(fileId)}&export=download");
+        var rk = GetQueryParam(u.Query, "resourcekey");
+        var rkSuffix = !string.IsNullOrWhiteSpace(rk) && IsValidDriveId(rk) ? $"&resourcekey={Uri.EscapeDataString(rk)}" : "";
+        var directUri = new Uri($"https://drive.usercontent.google.com/download?id={Uri.EscapeDataString(fileId)}&export=download{rkSuffix}");
         using var req = new HttpRequestMessage(HttpMethod.Get, directUri);
         using var resp = await HostResolvers.SendFollowHttpsAsync(http, req, ct).ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode) return null;

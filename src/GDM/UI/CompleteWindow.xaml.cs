@@ -14,7 +14,7 @@ public partial class CompleteWindow : Window
         NameText.Text = item.FileName;
         NameText.FlowDirection = TextDir.IsRtl(item.FileName) ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
         NameText.HorizontalAlignment = HorizontalAlignment.Left;
-        UrlText.Text = item.Url;
+        UrlText.Text = FileNames.IsDataUrl(item.Url) ? item.DisplayUrl : item.Url; // a huge data: address would freeze the layout
         PathText.Text = item.FullPath;
         SizeText.Text = Fmt.Size(item.TotalSize > 0 ? item.TotalSize : item.Downloaded);
         Closing += (_, _) => SavePreference();
@@ -28,16 +28,15 @@ public partial class CompleteWindow : Window
 
     void Close_Click(object sender, RoutedEventArgs e)
     {
-        SavePreference();
         Close();
     }
 
     void SavePreference()
     {
-        if (DontShow.IsChecked == true)
+        if (DontShow.IsChecked == true && App.Instance?.Settings is { } s)
         {
-            App.Instance.Settings.ShowCompleteDialog = false;
-            App.Instance.Settings.Save();
+            s.ShowCompleteDialog = false;
+            s.Save();
         }
     }
 }

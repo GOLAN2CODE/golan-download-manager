@@ -46,16 +46,28 @@ public partial class OptionsWindow
         download.Visibility = MediaTools.Ready ? Visibility.Collapsed : Visibility.Visible;
         update.Visibility = MediaTools.Ready ? Visibility.Visible : Visibility.Collapsed;
 
+        void RefreshVideoVersion()
+        {
+            if (!MediaTools.Ready) return;
+            _ = MediaTools.VersionAsync().ContinueWith(t =>
+            {
+                if (t.IsCompletedSuccessfully && !string.IsNullOrWhiteSpace(t.Result) && !_windowCts.IsCancellationRequested)
+                    Dispatcher.BeginInvoke(() => status.Text = Loc.T("win.options.video.ready") + Loc.T("win.options.video.version_suffix", t.Result));
+            });
+        }
+
         async Task RunTools(bool updateOnly)
         {
             download.IsEnabled = false;
             update.IsEnabled = false;
+            detail.Foreground = Brush("Muted");
+            progress.IsIndeterminate = updateOnly;
             progress.Visibility = Visibility.Visible;
             try
             {
                 if (updateOnly)
                 {
-                    detail.Text = await MediaTools.UpdateYtDlpAsync(CancellationToken.None);
+                    detail.Text = await MediaTools.UpdateYtDlpAsync(_windowCts.Token);
                 }
                 else
                 {
@@ -68,20 +80,27 @@ public partial class OptionsWindow
                             progress.Value = x.Percent;
                         }
                     });
-                    await MediaTools.EnsureAsync(prog, CancellationToken.None);
+                    await MediaTools.EnsureAsync(prog, _windowCts.Token);
                 }
                 status.Text = Loc.T("win.options.video.ready");
                 download.Visibility = Visibility.Collapsed;
                 update.Visibility = Visibility.Visible;
+                RefreshVideoVersion();
+            }
+            catch (OperationCanceledException)
+            {
+                // Window closed while downloading/updating media tools.
             }
             catch (Exception ex)
             {
-                detail.Text = Loc.T("win.options.video.failed", ex.Message);
+                detail.Text = Loc.T("win.options.video.failed", FriendlyError.Format(ex));
                 detail.Foreground = Brush("Danger");
                 Log.Write("options media tools failed: " + ex.Message);
             }
             finally
             {
+                progress.IsIndeterminate = false;
+                progress.Visibility = Visibility.Collapsed;
                 download.IsEnabled = true;
                 update.IsEnabled = true;
             }
@@ -136,15 +155,7 @@ public partial class OptionsWindow
             }),
             Check(Loc.T($"win.options.video.embed_metadata"), () => _working.DefaultEmbedMetadata, v => _working.DefaultEmbedMetadata = v)));
 
-        _ensureVideoVersionLoaded = () =>
-        {
-            if (!MediaTools.Ready) return;
-            _ = MediaTools.VersionAsync().ContinueWith(t =>
-            {
-                if (t.IsCompletedSuccessfully && t.Result != null)
-                    Dispatcher.BeginInvoke(() => status.Text += Loc.T("win.options.video.version_suffix", t.Result));
-            });
-        };
+        _ensureVideoVersionLoaded = RefreshVideoVersion;
         return p;
     }
 }

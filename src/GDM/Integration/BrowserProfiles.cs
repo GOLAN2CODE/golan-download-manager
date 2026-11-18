@@ -18,9 +18,12 @@ public sealed record BrowserProfile(string Directory, string DisplayName, string
 /// <summary>What GDM can tell about its extension inside one profile, from the profile's own files (read-only).</summary>
 public sealed record ProfileExtensionState(bool DeveloperMode, bool Installed, bool Disabled);
 
+/// <summary>Extended read-only profile state including the loaded extension version from Preferences / Secure Preferences.</summary>
+public sealed record DetailedExtensionState(bool DeveloperMode, bool Installed, bool Disabled, string? Version);
+
 /// <summary>
-/// Reads Chromium-family profile data (Chrome, Edge, Brave, Chromium, Vivaldi, Opera) so the guide can let the user pick a profile,
-/// tell whether Developer mode is on and whether Golan's extension is already loaded there. Never writes browser files.
+/// Reads Chromium-family profile data (Chrome, Edge, Brave, Chromium, Vivaldi, Opera, Yandex, Comet) so the guide and auto-installer
+/// can inspect profiles, Developer mode, and whether Golan's extension is loaded and enabled. Never writes browser files.
 /// </summary>
 public static class BrowserProfiles
 {
@@ -39,6 +42,8 @@ public static class BrowserProfiles
             "chromium.exe" => Path.Combine(local, "Chromium", "User Data"),
             "vivaldi.exe" => Path.Combine(local, "Vivaldi", "User Data"),
             "opera.exe" => Path.Combine(roaming, "Opera Software", "Opera Stable"),
+            "browser.exe" => Path.Combine(local, "Yandex", "YandexBrowser", "User Data"),
+            "comet.exe" => Path.Combine(local, "Perplexity", "Comet", "User Data"),
             _ => null,
         };
     }
@@ -78,11 +83,19 @@ public static class BrowserProfiles
     /// <summary>Developer mode and our extension's presence in one profile folder (Preferences + Secure Preferences).</summary>
     public static ProfileExtensionState ReadState(string profilePath, string extensionId, string extensionDir)
     {
+        var d = ReadDetailedState(profilePath, extensionId, extensionDir);
+        return new ProfileExtensionState(d.DeveloperMode, d.Installed, d.Disabled);
+    }
+
+    /// <summary>Developer mode, extension presence, disabled flag, and loaded manifest version in one profile folder (read-only).</summary>
+    public static DetailedExtensionState ReadDetailedState(string profilePath, string extensionId, string extensionDir)
+    {
         var prefs = ReadJson(Path.Combine(profilePath, "Preferences")) as JsonObject;
         var secure = ReadJson(Path.Combine(profilePath, "Secure Preferences")) as JsonObject;
         bool devMode = Bool(prefs?["extensions"]?["ui"]?["developer_mode"]) || Bool(secure?["extensions"]?["ui"]?["developer_mode"]);
 
         bool installed = false, disabled = false;
+        string? version = null;
         var wanted = NormalizeDir(extensionDir);
         foreach (var settings in new[] { prefs?["extensions"]?["settings"], secure?["extensions"]?["settings"] })
         {
@@ -100,9 +113,41 @@ public static class BrowserProfiles
                     || (ext["disable_reasons"] is JsonArray reasons && reasons.Count > 0)
                     || (ext["disable_reasons"] is JsonValue dr && dr.TryGetValue<int>(out var r) && r != 0))
                     disabled = true;
+                var mfVer = Str(ext["manifest"]?["version"]);
+                if (mfVer.Length == 0) mfVer = Str(ext["version"]);
+                if (mfVer.Length > 0) version = mfVer;
             }
         }
-        return new ProfileExtensionState(devMode, installed, disabled);
+        // Chromium stores no manifest in the profile for an unpacked ("Load unpacked") extension: it reads the folder
+        // again on every start. So when the profile gives no version, the folder's own manifest is the version loaded.
+        if (installed && version == null)
+            version = ReadManifestVersion(extensionDir);
+        return new DetailedExtensionState(devMode, installed, disabled, version);
+    }
+
+    static string? ReadManifestVersion(string extensionDir)
+    {
+        try
+        {
+            var manifest = ReadJson(Path.Combine(extensionDir, "manifest.json")) as JsonObject;
+            var v = Str(manifest?["version"]);
+            return v.Length > 0 ? v : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { /* no readable manifest there */ return null; }
+    }
+
+    /// <summary>Resolves the active or requested profile folder path for a Chromium browser, or null for non-Chromium browsers.</summary>
+    public static string? ResolveProfilePath(BrowserIntegration.BrowserInfo browser, string? profileDirectory)
+    {
+        var exeName = string.IsNullOrWhiteSpace(browser.ExePath) ? "" : Path.GetFileName(browser.ExePath);
+        if (exeName.Length == 0 || UserDataDir(exeName) is not { } userData) return null;
+        if (profileDirectory != null)
+            return profileDirectory.Length == 0 ? userData : Path.Combine(userData, profileDirectory);
+        var profiles = ReadProfiles(userData);
+        if (profiles.Count > 0)
+            return profiles[0].Directory.Length == 0 ? userData : Path.Combine(userData, profiles[0].Directory);
+        if (File.Exists(Path.Combine(userData, "Preferences"))) return userData;
+        return Path.Combine(userData, "Default");
     }
 
     /// <summary>Arguments to open the browser's extensions page in a given profile ("" = the browser's own default).</summary>
@@ -193,7 +238,7 @@ public static class ExtensionContact
     [DllImport("ntdll.dll")]
     static extern int NtQueryInformationProcess(IntPtr process, int infoClass, ref ProcessBasicInformation info, int size, out int returned);
 
-    static readonly string[] BrowserExes = ["chrome.exe", "msedge.exe", "brave.exe", "chromium.exe", "vivaldi.exe", "opera.exe", "firefox.exe"];
+    static readonly string[] BrowserExes = ["chrome.exe", "msedge.exe", "brave.exe", "chromium.exe", "vivaldi.exe", "opera.exe", "browser.exe", "comet.exe", "firefox.exe"];
 
     /// <summary>
     /// The browser that launched this native host: Chrome on Windows starts hosts through cmd.exe, so walk up a few parents.
@@ -201,9 +246,10 @@ public static class ExtensionContact
     /// </summary>
     public static string DetectLaunchingBrowser()
     {
+        Process? current = null;
         try
         {
-            var current = Process.GetCurrentProcess();
+            current = Process.GetCurrentProcess();
             for (int depth = 0; depth < 4; depth++)
             {
                 var info = new ProcessBasicInformation();
@@ -212,15 +258,33 @@ public static class ExtensionContact
                 if (parentId <= 0) break;
                 Process parent;
                 try { parent = Process.GetProcessById(parentId); }
-                catch (ArgumentException) { break; }
-                var name = parent.ProcessName + ".exe";
-                if (BrowserExes.Contains(name, StringComparer.OrdinalIgnoreCase)) return name.ToLowerInvariant();
+                catch (ArgumentException) { /* parent process already exited */ break; }
+                string name;
+                try
+                {
+                    name = parent.ProcessName + ".exe";
+                }
+                catch
+                {
+                    parent.Dispose();
+                    throw;
+                }
+                if (BrowserExes.Contains(name, StringComparer.OrdinalIgnoreCase))
+                {
+                    parent.Dispose();
+                    return name.ToLowerInvariant();
+                }
+                current.Dispose();
                 current = parent;
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or DllNotFoundException or EntryPointNotFoundException)
         {
             Log.Write("browser detection failed: " + ex.Message);
+        }
+        finally
+        {
+            current?.Dispose();
         }
         return "";
     }

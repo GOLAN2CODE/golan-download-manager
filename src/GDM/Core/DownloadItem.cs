@@ -30,7 +30,10 @@ public sealed partial class DownloadItem : ObservableObject
 
     string _url = "";
     /// <summary>The address the user (or the browser) gave. Redirect targets are never stored here.</summary>
-    public string Url { get => _url; set { if (Set(ref _url, value)) ResolvedUrl = null; } }
+    public string Url { get => _url; set { if (Set(ref _url, value)) { ResolvedUrl = null; OnPropertyChanged(nameof(DisplayUrl)); } } }
+
+    /// <summary>Truncated display form of <see cref="Url"/> safe for DataGrid tooltips and dialog labels.</summary>
+    [JsonIgnore] public string DisplayUrl => FileNames.FormatDisplayUrl(_url);
 
     /// <summary>Where <see cref="Url"/> redirected to in this session; expiring links are re-resolved from Url.</summary>
     [JsonIgnore] public string? ResolvedUrl { get; set; }
@@ -69,6 +72,9 @@ public sealed partial class DownloadItem : ObservableObject
 
     /// <summary>True when the user typed the name, so server names never override it.</summary>
     public bool NameLocked { get; set; }
+
+    /// <summary>True when added directly by the user via the manual Add dialog or CLI (never browser capture, batch, grabber, or import).</summary>
+    public bool AddedManually { get; set; }
 
     string _saveDir = "";
     public string SaveDir
@@ -185,6 +191,8 @@ public sealed partial class DownloadItem : ObservableObject
     [JsonIgnore] public bool StoppedByUser { get; set; }
     /// <summary>Set when a stopped queue item should go back to Queued.</summary>
     [JsonIgnore] public bool RequeueOnStop { get; set; }
+    /// <summary>Set when a synchronization queue re-downloads an item so HTML error pages are never saved as the synced file.</summary>
+    [JsonIgnore] public bool TriggeredBySync { get; set; }
 
     double _speed;
     [JsonIgnore] public double Speed { get => _speed; set { if (Set(ref _speed, value)) OnPropertyChanged(nameof(SpeedText)); } }

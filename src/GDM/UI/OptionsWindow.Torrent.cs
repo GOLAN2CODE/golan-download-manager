@@ -20,32 +20,45 @@ public partial class OptionsWindow
             Check(Loc.T($"win.options.torrent.encryption"), () => _working.TorrentEncryptionPreferred, v => _working.TorrentEncryptionPreferred = v),
             Check(Loc.T($"win.options.torrent.upnp"), () => _working.TorrentPortForwarding, v => _working.TorrentPortForwarding = v)));
 
-        var ratioBox = Text(_working.StopSeedingAtRatio.ToString(System.Globalization.CultureInfo.InvariantCulture), s =>
+        TextBox? ratioBox = null;
+        ratioBox = Text(_working.StopSeedingAtRatio.ToString(System.Globalization.CultureInfo.InvariantCulture), s =>
         {
-            if (double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d)
+            var normalized = s.Trim().Replace(',', '.');
+            if (double.TryParse(normalized, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d)
                 && !double.IsNaN(d) && !double.IsInfinity(d) && d is >= 0 and <= 1000)
             {
                 _working.StopSeedingAtRatio = d;
+                SetControlValid(ratioBox!, true);
+            }
+            else
+            {
+                SetControlValid(ratioBox!, false);
             }
         }, true, 110);
 
-        p.Children.Add(Card(
-            Label(Loc.T($"win.options.torrent.seeding_card")),
-            Label(Loc.T($"win.options.torrent.stop_ratio")),
-            ratioBox,
-            Label(Loc.T($"win.options.torrent.stop_minutes")),
-            Number(_working.StopSeedingAfterMinutes, v => _working.StopSeedingAfterMinutes = v, 0, 525600),
-            Label(Loc.T($"win.options.torrent.magnet_timeout")),
-            Number(_working.MagnetMetadataTimeoutMinutes, v => _working.MagnetMetadataTimeoutMinutes = v, 1, 60),
-            Check(Loc.T($"win.options.torrent.register_magnet"), () => _working.RegisterMagnetProtocol, v =>
+        CheckBox? magnetCheck = null;
+        magnetCheck = Check(Loc.T("win.options.torrent.register_magnet"), () => _working.RegisterMagnetProtocol, v =>
+        {
+            if (v && !_working.RegisterMagnetProtocol && !AppPaths.IsIsolated)
             {
-                if (v && !_working.RegisterMagnetProtocol && !AppPaths.IsIsolated)
+                if (!Confirm.Ask(this, Loc.T("vb.magnet.consent.title"), Loc.T("vb.magnet.consent.body"), Loc.T("vb.magnet.consent.yes")))
                 {
-                    if (!Confirm.Ask(this, Loc.T($"vb.magnet.consent.title"), Loc.T($"vb.magnet.consent.body"), Loc.T($"vb.magnet.consent.yes")))
-                        return;
+                    if (magnetCheck != null) magnetCheck.IsChecked = false;
+                    return;
                 }
-                _working.RegisterMagnetProtocol = v;
-            })));
+            }
+            _working.RegisterMagnetProtocol = v;
+        });
+
+        p.Children.Add(Card(
+            Label(Loc.T("win.options.torrent.seeding_card")),
+            Label(Loc.T("win.options.torrent.stop_ratio")),
+            ratioBox,
+            Label(Loc.T("win.options.torrent.stop_minutes")),
+            Number(_working.StopSeedingAfterMinutes, v => _working.StopSeedingAfterMinutes = v, 0, 525600),
+            Label(Loc.T("win.options.torrent.magnet_timeout")),
+            Number(_working.MagnetMetadataTimeoutMinutes, v => _working.MagnetMetadataTimeoutMinutes = v, 1, 60),
+            magnetCheck));
         return p;
     }
 }

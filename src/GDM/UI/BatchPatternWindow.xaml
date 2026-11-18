@@ -6,9 +6,10 @@
         WindowStartupLocation="CenterOwner" Style="{StaticResource GdmWindow}" Icon="/Assets/gdm.ico">
     <StackPanel Margin="20">
         <TextBlock Text="{core:T win.batchpattern.header}" FontSize="18" FontWeight="SemiBold"/>
-        <TextBlock Text="{core:T win.batchpattern.hint}" Margin="0,8,0,12"
+        <TextBlock Text="{core:T win.batchpattern.hint}" Margin="0,8,0,12" TextWrapping="Wrap"
                    Foreground="{DynamicResource Muted}"/>
-        <TextBox x:Name="PatternBox" FlowDirection="LeftToRight" Tag="{core:T win.batchpattern.pattern_tag}"/>
+        <TextBox x:Name="PatternBox" FlowDirection="LeftToRight" Tag="{core:T win.batchpattern.pattern_tag}"
+                 AutomationProperties.Name="{core:T win.batchpattern.header}"/>
         <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
             <RadioButton x:Name="NumbersRadio" Content="{core:T win.batchpattern.numbers}" IsChecked="True"/>
             <RadioButton x:Name="LettersRadio" Content="{core:T win.batchpattern.letters}" Margin="18,0,0,0"/>
@@ -21,15 +22,15 @@
             </Grid.ColumnDefinitions>
             <StackPanel>
                 <TextBlock Text="{core:T win.batchpattern.from}" Style="{StaticResource Label}"/>
-                <TextBox x:Name="FromBox" FlowDirection="LeftToRight" Text="1"/>
+                <TextBox x:Name="FromBox" FlowDirection="LeftToRight" Text="1" AutomationProperties.Name="{core:T win.batchpattern.from}"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Margin="8,0">
                 <TextBlock Text="{core:T win.batchpattern.to}" Style="{StaticResource Label}"/>
-                <TextBox x:Name="ToBox" FlowDirection="LeftToRight" Text="10"/>
+                <TextBox x:Name="ToBox" FlowDirection="LeftToRight" Text="10" AutomationProperties.Name="{core:T win.batchpattern.to}"/>
             </StackPanel>
             <StackPanel Grid.Column="2">
                 <TextBlock Text="{core:T win.batchpattern.pad}" Style="{StaticResource Label}"/>
-                <TextBox x:Name="WidthBox" FlowDirection="LeftToRight" Text="0"/>
+                <TextBox x:Name="WidthBox" FlowDirection="LeftToRight" Text="0" AutomationProperties.Name="{core:T win.batchpattern.pad}"/>
             </StackPanel>
         </Grid>
         <Grid Margin="0,10,0,0">
@@ -37,16 +38,18 @@
                 <ColumnDefinition/>
                 <ColumnDefinition/>
             </Grid.ColumnDefinitions>
-            <TextBox x:Name="LoginBox" FlowDirection="LeftToRight" Tag="{core:T win.batchpattern.login_tag}"/>
-            <PasswordBox x:Name="PasswordBox" Grid.Column="1" Margin="8,0,0,0"/>
+            <TextBox x:Name="LoginBox" FlowDirection="LeftToRight" Tag="{core:T win.batchpattern.login_tag}"
+                     AutomationProperties.Name="{core:T win.batchpattern.login_tag}"/>
+            <PasswordBox x:Name="PasswordBox" Grid.Column="1" Margin="8,0,0,0" FlowDirection="LeftToRight"
+                         Tag="{core:T win.batchpattern.password_tag}" AutomationProperties.Name="{core:T win.batchpattern.password_tag}"/>
         </Grid>
         <TextBlock Text="{core:T win.batchpattern.preview_label}" Style="{StaticResource Label}" Margin="0,12,0,4"/>
-        <TextBlock x:Name="PreviewText" TextWrapping="Wrap" MaxHeight="90"/>
+        <TextBlock x:Name="PreviewText" TextWrapping="Wrap" MaxHeight="90" FlowDirection="LeftToRight"/>
         <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" Margin="0,8,0,0"
                    Visibility="Collapsed"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,16,0,0">
             <Button Content="{core:T win.batchpattern.ok}" Style="{StaticResource Primary}" IsDefault="True" Click="Ok_Click"/>
-            <Button Content="{core:T win.batchpattern.cancel}" IsCancel="True" Margin="8,0,0,0"/>
+            <Button Content="{core:T win.batchpattern.cancel}" IsCancel="True" Click="Cancel_Click" Margin="8,0,0,0"/>
         </StackPanel>
     </StackPanel>
 </Window>

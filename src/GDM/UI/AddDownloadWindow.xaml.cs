@@ -16,7 +16,26 @@ public partial class AddDownloadWindow : Window
     readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(600) };
     CancellationTokenSource? _probeCts;
     ProbeResult? _probe;
-    bool _nameEdited, _folderEdited, _settingName, _settingFolder, _startedEarly, _submitted;
+    string? _rawDataUrl;
+    bool _nameEdited, _folderEdited, _settingUrl, _settingName, _settingFolder, _startedEarly, _submitted, _submitting;
+
+    string EffectiveUrl => _rawDataUrl ?? UrlBox.Text.Trim();
+
+    void SetInitialUrl(string u)
+    {
+        _settingUrl = true;
+        if (FileNames.IsDataUrl(u) && u.Length > 4096)
+        {
+            _rawDataUrl = u;
+            UrlBox.Text = FileNames.FormatDisplayUrl(u);
+        }
+        else
+        {
+            _rawDataUrl = null;
+            UrlBox.Text = u;
+        }
+        _settingUrl = false;
+    }
 
     /// <param name="decision">Completed with true when the user accepts (start or later), false when cancelled. Used by the browser extension.</param>
     public AddDownloadWindow(DownloadItem? item, TaskCompletionSource<bool>? decision = null, string? initialUrl = null)
@@ -30,9 +49,11 @@ public partial class AddDownloadWindow : Window
 
         if (item != null)
         {
-            UrlBox.Text = item.Url;
-            SetName(item.FileName);
+            if (decision == null) item.AddedManually = true;
             _nameEdited = item.NameLocked;
+            SetInitialUrl(item.Url);
+            VideoHint.Visibility = MediaDownloader.LooksLikeMediaPage(item.Url) ? Visibility.Visible : Visibility.Collapsed;
+            SetName(item.FileName);
             CategoryBox.SelectedItem = Categories.Get(item.Category);
             SetFolder(item.SaveDir);
             DescriptionBox.Text = item.Description;
@@ -45,19 +66,29 @@ public partial class AddDownloadWindow : Window
         {
             CategoryBox.SelectedItem = Categories.Get("general");
             if (!string.IsNullOrWhiteSpace(initialUrl))
-                UrlBox.Text = initialUrl;
+            {
+                SetInitialUrl(initialUrl);
+                HandleUrlChanged(EffectiveUrl, scheduleProbe: false);
+            }
         }
         UpdateSpaceHint();
 
         Loaded += (_, _) =>
         {
-            if (FileNames.IsHttpUrl(UrlBox.Text) || MagnetValidator.IsMagnetUri(UrlBox.Text)) { _ = ProbeAsync(); NameBox.Focus(); }
+            if (FileNames.IsDownloadableUrl(EffectiveUrl) || MagnetValidator.IsMagnetUri(EffectiveUrl))
+            {
+                _ = ProbeAsync();
+                NameBox.Focus();
+                SelectNameStem(NameBox);
+            }
             else UrlBox.Focus();
             if (_incoming != null && _manager.Settings.StartImmediatelyWhileDialog) StartEarly();
         };
         Closed += (_, _) =>
         {
             _probeCts?.Cancel();
+            _probeCts?.Dispose();
+            _probeCts = null;
             _debounce.Stop();
             if (!_submitted && _startedEarly && _incoming != null) _ = _manager.RemoveAsync(_incoming, deleteFile: false);
             _decision?.TrySetResult(_submitted);
@@ -66,7 +97,27 @@ public partial class AddDownloadWindow : Window
 
     static string TryHost(string url) => Uri.TryCreate(url, UriKind.Absolute, out var u) ? u.Host : url;
 
-    void SetName(string name) { _settingName = true; NameBox.Text = name; _settingName = false; }
+    internal static (int Start, int Length) GetFileNameStemRange(string? fileName)
+    {
+        if (string.IsNullOrEmpty(fileName)) return (0, 0);
+        int dot = fileName.LastIndexOf('.');
+        if (dot <= 0) return (0, fileName.Length);
+        return (0, dot);
+    }
+
+    static void SelectNameStem(TextBox box)
+    {
+        var (start, len) = GetFileNameStemRange(box.Text);
+        if (len > 0) box.Select(start, len);
+    }
+
+    void SetName(string name)
+    {
+        _settingName = true;
+        NameBox.Text = name;
+        NameBox.FlowDirection = InputDialog.GetInputFlowDirection(name, name);
+        _settingName = false;
+    }
     void SetFolder(string dir) { _settingFolder = true; FolderBox.Text = dir; _settingFolder = false; UpdateSpaceHint(); }
 
     void UpdateSpaceHint()
@@ -81,7 +132,7 @@ public partial class AddDownloadWindow : Window
             return;
         }
         long size = _probe?.Size ?? _incoming?.TotalSize ?? -1;
-        bool isMedia = _incoming?.Kind == DownloadKind.Media || MediaDownloader.LooksLikeMediaPage(UrlBox.Text.Trim());
+        bool isMedia = _incoming?.Kind == DownloadKind.Media || MediaDownloader.LooksLikeMediaPage(EffectiveUrl);
         string effectiveTemp = DownloadItem.TempRoot;
         long tempFree = SpaceCheck.AreDifferentDrives(folder, effectiveTemp) ? SpaceCheck.FreeBytes(effectiveTemp) : -1;
         var verdict = SpaceCheck.Evaluate(free, size, _incoming?.Downloaded ?? 0, isMedia, tempFree);
@@ -121,7 +172,13 @@ public partial class AddDownloadWindow : Window
 
     void UrlBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        var url = UrlBox.Text.Trim();
+        if (_settingUrl) return;
+        _rawDataUrl = null;
+        HandleUrlChanged(EffectiveUrl, scheduleProbe: true);
+    }
+
+    void HandleUrlChanged(string url, bool scheduleProbe)
+    {
         VideoHint.Visibility = MediaDownloader.LooksLikeMediaPage(url) ? Visibility.Visible : Visibility.Collapsed;
         ErrorText.Visibility = Visibility.Collapsed;
         _probe = null;
@@ -133,17 +190,21 @@ public partial class AddDownloadWindow : Window
             InfoText.Text = Loc.T($"vb.add.magnet_hint");
             return;
         }
-        if (!FileNames.IsHttpUrl(url)) { InfoText.Text = Loc.T("main.add.sizeDash"); return; }
+        if (!FileNames.IsDownloadableUrl(url)) { InfoText.Text = Loc.T("main.add.sizeDash"); return; }
         if (!_nameEdited) ApplyName(FileNames.FromUrl(url));
-        _debounce.Stop();
-        _debounce.Start();
+        if (scheduleProbe)
+        {
+            _debounce.Stop();
+            _debounce.Start();
+        }
     }
 
     void NameBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (_settingName) return;
         _nameEdited = true;
-        var cat = Categories.Detect(NameBox.Text, UrlBox.Text);
+        NameBox.FlowDirection = InputDialog.GetInputFlowDirection(NameBox.Text, NameBox.Text);
+        var cat = Categories.Detect(NameBox.Text, EffectiveUrl);
         if (cat != "general") CategoryBox.SelectedItem = Categories.Get(cat);
     }
 
@@ -156,7 +217,7 @@ public partial class AddDownloadWindow : Window
     void ApplyName(string name)
     {
         SetName(name);
-        CategoryBox.SelectedItem = Categories.Get(Categories.Detect(name, UrlBox.Text));
+        CategoryBox.SelectedItem = Categories.Get(Categories.Detect(name, EffectiveUrl));
     }
 
     void CategoryBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -201,7 +262,8 @@ public partial class AddDownloadWindow : Window
 
     async Task ProbeAsync()
     {
-        var url = UrlBox.Text.Trim();
+        _debounce.Stop();
+        var url = EffectiveUrl;
         if (MagnetValidator.IsMagnetUri(url))
         {
             if (MagnetValidator.TryParse(url, out var mag, out var magErr) && mag != null)
@@ -216,22 +278,47 @@ public partial class AddDownloadWindow : Window
             }
             return;
         }
-        if (!FileNames.IsHttpUrl(url)) { ShowError(Loc.T("main.add.invalidUrl")); return; }
-        _probeCts?.Cancel();
+        if (FileNames.IsDataUrl(url))
+        {
+            try
+            {
+                var p = DataUrlDownloader.Probe(url);
+                _probe = p;
+                if (!_nameEdited && p.FileName != null && !_startedEarly) ApplyName(p.FileName);
+                InfoText.Text = Loc.T("main.add.sizeValue", Fmt.Size(p.Size));
+                UpdateSpaceHint();
+            }
+            catch (Exception ex)
+            {
+                InfoText.Text = Loc.T("main.add.sizeDash");
+                ShowError(ex is DownloadException ? ex.Message : Loc.T("main.add.invalidUrl"));
+            }
+            return;
+        }
+        if (!FileNames.IsHttpUrl(url) && !FileNames.IsFtpUrl(url)) { ShowError(Loc.T("main.add.invalidUrl")); return; }
+        var prevCts = _probeCts;
+        _probeCts = null;
+        prevCts?.Cancel();
+        prevCts?.Dispose();
         var cts = _probeCts = new CancellationTokenSource(TimeSpan.FromSeconds(25));
         ProbeBar.Visibility = Visibility.Visible;
         InfoText.Text = Loc.T("main.add.connecting");
         ErrorText.Visibility = Visibility.Collapsed;
         try
         {
-            var p = await HttpDownloader.ProbeAsync(ProbeItem(url), cts.Token);
+            var p = await ProbeNetworkUrlAsync(url, cts.Token);
             if (cts.IsCancellationRequested) return;
             _probe = p;
             if (!_nameEdited && p.FileName != null && !_startedEarly) ApplyName(p.FileName);
-            var parts = new List<string> { Loc.T("main.add.sizeValue", p.Size > 0 ? Fmt.Size(p.Size) : Loc.T("main.add.unknownSize")) };
+            var parts = new List<string> { p.Size > 0 ? Loc.T("main.add.sizeValue", Fmt.Size(p.Size)) : Loc.T("main.add.unknownSize") };
             parts.Add(p.Resumable ? Loc.T("main.add.resumable") : Loc.T("main.add.notResumable"));
             if (p.Mime == "text/html") parts.Add(Loc.T("main.add.htmlWarning"));
             InfoText.Text = string.Join("  ·  ", parts);
+            // A link that answers with a web page is the most common mistake: make the warning visible.
+            if (p.Mime == "text/html") InfoText.SetResourceReference(TextBlock.ForegroundProperty, "Warning");
+            else InfoText.ClearValue(TextBlock.ForegroundProperty);
+            // Do not promise 8 connections for a server that only allows one.
+            ConnText.Text = p.Resumable ? Loc.T("main.add.connections", _manager.Settings.MaxConnections) : Loc.T("main.add.connectionOne");
             PreviewBtn.Visibility = p.Resumable && Path.GetExtension(p.FileName ?? NameBox.Text).Equals(".zip", StringComparison.OrdinalIgnoreCase)
                 ? Visibility.Visible : Visibility.Collapsed;
             UpdateSpaceHint();
@@ -244,7 +331,7 @@ public partial class AddDownloadWindow : Window
         catch (Exception ex)
         {
             InfoText.Text = Loc.T("main.add.sizeDash");
-            ShowError(ex is DownloadException ? ex.Message : Loc.T("main.add.probeFailed", ex.Message));
+            ShowError(ex is DownloadException ? ex.Message : Loc.T("main.add.probeFailed", FriendlyError.Format(ex)));
         }
         finally
         {
@@ -252,7 +339,47 @@ public partial class AddDownloadWindow : Window
         }
     }
 
-    void Preview_Click(object sender, RoutedEventArgs e) => App.Instance.ShowZipPreview(ProbeItem(UrlBox.Text.Trim()));
+    void Preview_Click(object sender, RoutedEventArgs e) => App.Instance.ShowZipPreview(ProbeItem(EffectiveUrl));
+
+    async Task<ProbeResult> ProbeNetworkUrlAsync(string url, CancellationToken ct)
+    {
+        if (FileNames.IsFtpUrl(url))
+            return await FtpDownloader.ProbeAsync(ProbeItem(url), ct);
+
+        if (Uri.TryCreate(url, UriKind.Absolute, out var srcUri)
+            && Core.Resolvers.HostResolvers.All.Any(r => r.CanHandle(srcUri)))
+        {
+            var resolved = await Core.Resolvers.HostResolvers.TryResolveAsync(srcUri, null, ct);
+            if (resolved != null)
+            {
+                if (resolved.NeedsMegaDecrypt)
+                    return new ProbeResult(resolved.Direct, resolved.Size, resolved.Size > 0, resolved.FileName, "application/octet-stream", "", null);
+
+                var resolvedItem = ProbeItem(resolved.Direct.AbsoluteUri);
+                if (resolved.Headers.TryGetValue("Cookie", out var rc) && !string.IsNullOrWhiteSpace(rc) && string.IsNullOrEmpty(resolvedItem.Cookies))
+                {
+                    resolvedItem.Cookies = rc;
+                    resolvedItem.CookieHost = resolved.Direct.Host;
+                }
+                try
+                {
+                    var dp = await HttpDownloader.ProbeAsync(resolvedItem, ct);
+                    var bestName = !string.IsNullOrWhiteSpace(resolved.FileName)
+                        && (string.IsNullOrWhiteSpace(dp.FileName) || dp.FileName == FileNames.FromUrl(dp.FinalUri.ToString()))
+                        ? resolved.FileName
+                        : dp.FileName;
+                    var bestSize = dp.Size > 0 ? dp.Size : resolved.Size;
+                    return dp with { FileName = bestName, Size = bestSize };
+                }
+                catch (Exception) when (!ct.IsCancellationRequested && (resolved.Size > 0 || !string.IsNullOrWhiteSpace(resolved.FileName)))
+                {
+                    return new ProbeResult(resolved.Direct, resolved.Size, false, resolved.FileName, null, "", null);
+                }
+            }
+        }
+
+        return await HttpDownloader.ProbeAsync(ProbeItem(url), ct);
+    }
 
     void ShowError(string text)
     {
@@ -273,7 +400,13 @@ public partial class AddDownloadWindow : Window
 
     void OpenVideo_Click(object sender, RoutedEventArgs e)
     {
-        App.Instance.ShowVideo(UrlBox.Text.Trim(), _incoming?.Referrer ?? "", _incoming?.UserAgent ?? "", null, []);
+        if (_startedEarly && _incoming != null)
+        {
+            _startedEarly = false;
+            // Partials go with the item; the final name may still be a file the user already had (see ProgressWindow cancel).
+            _ = _manager.RemoveAsync(_incoming, deleteFile: false);
+        }
+        App.Instance.ShowVideo(EffectiveUrl, _incoming?.Referrer ?? "", _incoming?.UserAgent ?? "", null, []);
         _submitted = true; // the video window takes over
         Close();
     }
@@ -318,6 +451,25 @@ public partial class AddDownloadWindow : Window
 
     async Task SubmitAsync(bool later)
     {
+        if (_submitting || _submitted) return;
+        _submitting = true;
+        StartBtn.IsEnabled = LaterBtn.IsEnabled = false;
+        try
+        {
+            await SubmitCoreAsync(later);
+        }
+        finally
+        {
+            if (!_submitted)
+            {
+                _submitting = false;
+                StartBtn.IsEnabled = LaterBtn.IsEnabled = true;
+            }
+        }
+    }
+
+    async Task SubmitCoreAsync(bool later)
+    {
         var name = FileNames.Sanitize(NameBox.Text);
         var folder = FolderBox.Text.Trim();
         if (!IsAllowedFolder(folder, _manager.Settings)) { ShowError(Loc.T("main.add.invalidFolder")); return; }
@@ -327,7 +479,7 @@ public partial class AddDownloadWindow : Window
         long required = _probe?.Size ?? _incoming?.TotalSize ?? -1;
         if (!later)
         {
-            bool isMedia = _incoming?.Kind == DownloadKind.Media || MediaDownloader.LooksLikeMediaPage(UrlBox.Text.Trim());
+            bool isMedia = _incoming?.Kind == DownloadKind.Media || MediaDownloader.LooksLikeMediaPage(EffectiveUrl);
             string effectiveTemp = DownloadItem.TempRoot;
             long tempFree = SpaceCheck.AreDifferentDrives(folder, effectiveTemp) ? SpaceCheck.FreeBytes(effectiveTemp) : -1;
             var verdict = SpaceCheck.Evaluate(SpaceCheck.FreeBytes(folder), required, _incoming?.Downloaded ?? 0, isMedia, tempFree);
@@ -369,7 +521,7 @@ public partial class AddDownloadWindow : Window
             return;
         }
 
-        var url = UrlBox.Text.Trim();
+        var url = EffectiveUrl;
         if (MagnetValidator.IsMagnetUri(url))
         {
             try
@@ -384,6 +536,18 @@ public partial class AddDownloadWindow : Window
                     startQueue = pick.Value.Start;
                 }
                 var magItem = _manager.AddMagnet(url, saveDir: folder, startNow: false);
+                if (_nameEdited && !string.IsNullOrWhiteSpace(name))
+                {
+                    magItem.FileName = name;
+                    magItem.NameLocked = true;
+                }
+                if (CategoryBox.SelectedItem is CategoryDef selCat)
+                {
+                    magItem.Category = selCat.Key;
+                    selCat.RememberLastPath = RememberPathBox.IsChecked == true;
+                    if (selCat.RememberLastPath) selCat.LastPath = folder;
+                    _manager.Settings.Save();
+                }
                 magItem.Description = DescriptionBox.Text.Trim();
                 magItem.ExpectedHash = ExpectedHashBox.Text.Trim();
                 magItem.AutoExtract = AutoExtractCheck.IsChecked;
@@ -399,14 +563,15 @@ public partial class AddDownloadWindow : Window
             }
             catch (Exception ex)
             {
-                ShowError(ex.Message);
+                ShowError(FriendlyError.Format(ex));
             }
             return;
         }
 
-        if (!FileNames.IsHttpUrl(url)) { ShowError(Loc.T("main.add.invalidUrl")); UrlBox.Focus(); return; }
+        if (!FileNames.IsDownloadableUrl(url)) { ShowError(Loc.T("main.add.invalidUrl")); UrlBox.Focus(); return; }
 
         var item = _incoming ?? _manager.CreateHttp(url);
+        if (_decision == null) item.AddedManually = true;
         if (item.Url != url) item.Url = url;
         item.FileName = name;
         item.NameLocked = _nameEdited || item.NameLocked;
@@ -415,7 +580,8 @@ public partial class AddDownloadWindow : Window
         item.ExpectedHash = ExpectedHashBox.Text.Trim();
         item.AutoExtract = AutoExtractCheck.IsChecked;
         item.Category = (CategoryBox.SelectedItem as CategoryDef)?.Key ?? Categories.Detect(name, url);
-        if (_probe != null) item.TotalSize = _probe.Size;
+        if (_probe != null && (_probe.Size > 0 || item.TotalSize <= 0 || item.Url != _incoming?.Url))
+            item.TotalSize = _probe.Size;
 
         var cat = Categories.Get(item.Category);
         cat.RememberLastPath = RememberPathBox.IsChecked == true;

@@ -5,13 +5,34 @@
         Title="{core:T win.zip.title}" Width="760" Height="500"
         WindowStartupLocation="CenterScreen" Style="{StaticResource GdmWindow}" Icon="/Assets/gdm.ico">
     <DockPanel Margin="16">
-        <TextBlock x:Name="StateText" DockPanel.Dock="Bottom" Margin="0,10,0,0" Foreground="{DynamicResource Muted}"/>
-        <DataGrid x:Name="EntriesGrid" AutoGenerateColumns="False" IsReadOnly="True">
+        <ProgressBar x:Name="LoadProgress" DockPanel.Dock="Top" Height="4" IsIndeterminate="True" Margin="0,0,0,8"/>
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" LastChildFill="True">
+            <Button DockPanel.Dock="Right" Content="{core:T main.complete.close}" IsDefault="True" IsCancel="True" Click="Close_Click" MinWidth="86" Margin="10,0,0,0"/>
+            <TextBlock x:Name="StateText" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{DynamicResource Muted}"/>
+        </DockPanel>
+        <DataGrid x:Name="EntriesGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                  CanUserAddRows="False" CanUserDeleteRows="False"
+                  AutomationProperties.Name="{core:T win.zip.title}">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="{core:T win.zip.col.name}" Binding="{Binding Name}" Width="3*"/>
-                <DataGridTextColumn Header="{core:T win.zip.col.size}" Binding="{Binding Size}" Width="*"/>
-                <DataGridTextColumn Header="{core:T win.zip.col.compressed}" Binding="{Binding CompressedSize}" Width="*"/>
-                <DataGridTextColumn Header="{core:T win.zip.col.modified}" Binding="{Binding Modified}" Width="1.4*"/>
+                <DataGridTextColumn Header="{core:T win.zip.col.name}" Binding="{Binding Name}" Width="3*">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="FlowDirection" Value="{Binding Name, Converter={StaticResource TextDir}}"/>
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn Header="{core:T win.zip.col.size}" Binding="{Binding Size}" SortMemberPath="RawSize" Width="*"/>
+                <DataGridTextColumn Header="{core:T win.zip.col.compressed}" Binding="{Binding CompressedSize}" SortMemberPath="RawCompressedSize" Width="*"/>
+                <DataGridTextColumn Header="{core:T win.zip.col.modified}" Binding="{Binding Modified}" SortMemberPath="RawModified" Width="1.4*">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="FlowDirection" Value="LeftToRight"/>
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
             </DataGrid.Columns>
         </DataGrid>
     </DockPanel>

@@ -81,5 +81,7 @@
   "stats.win.section.hosts": "أعلى المواقع (أفضل 10)",
   "stats.win.col.name": "الاسم",
   "stats.win.col.size": "الحجم",
-  "stats.win.close": "إغلاق"
+  "stats.win.close": "إغلاق",
+  "speedrules.win.empty": "لا توجد قواعد مجدولة بعد. اضغط «إضافة قاعدة» لتحديد سرعة حسب الوقت.",
+  "stats.win.empty": "لا توجد تنزيلات مكتملة في هذه الفترة بعد."
 }

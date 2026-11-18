@@ -17,6 +17,7 @@ public partial class TorrentFilesWindow : Window
 
     private readonly ObservableCollection<TorrentFileEntry> _entries = [];
     private readonly DownloadItem? _item;
+    private bool _submitting;
 
     public IReadOnlyList<TorrentFileEntry> Entries => _entries;
     public bool SequentialDownload => SequentialCheck.IsChecked == true;
@@ -27,6 +28,7 @@ public partial class TorrentFilesWindow : Window
         FlowDirection = Loc.FlowDirection;
         _item = item;
         TorrentNameText.Text = torrentName;
+        TorrentNameText.FlowDirection = TextDir.IsRtl(torrentName) ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
         SequentialCheck.IsChecked = sequential;
 
         PriorityColumn.ItemsSource = new List<PriorityOption>
@@ -108,6 +110,7 @@ public partial class TorrentFilesWindow : Window
                     {
                         Header = parts[i],
                         Tag = currentPrefix + "/",
+                        FlowDirection = TextDir.IsRtl(parts[i]) ? FlowDirection.RightToLeft : FlowDirection.LeftToRight,
                         IsExpanded = i == 0
                     };
                     folderNodes[currentPrefix] = node;
@@ -153,50 +156,68 @@ public partial class TorrentFilesWindow : Window
             OkBtn.IsEnabled = selectedCount > 0;
     }
 
+    private IEnumerable<TorrentFileEntry> VisibleEntries
+        => FilesGrid.ItemsSource as IEnumerable<TorrentFileEntry> ?? _entries;
+
     private void SelectAll_Click(object sender, RoutedEventArgs e)
     {
-        TorrentSelection.SelectAll(_entries);
+        TorrentSelection.SelectAll(VisibleEntries);
         UpdateSummary();
     }
 
     private void SelectNone_Click(object sender, RoutedEventArgs e)
     {
-        TorrentSelection.SelectNone(_entries);
+        TorrentSelection.SelectNone(VisibleEntries);
         UpdateSummary();
     }
 
     private async void Ok_Click(object sender, RoutedEventArgs e)
     {
-        if (_item != null)
+        if (_submitting) return;
+        _submitting = true;
+        OkBtn.IsEnabled = false;
+        try
         {
-            _item.TorrentSequential = SequentialDownload;
-            _item.TorrentSelectedFiles = TorrentSelection.GetSelectedIndices(_entries);
-            _item.TorrentFilePriorities = _entries.ToDictionary(x => x.Index, x => x.Priority);
-            long selectedBytes = TorrentSelection.ComputeSelectedSize(_entries);
-            if (selectedBytes > 0)
-                _item.TotalSize = selectedBytes;
-
-            if (TorrentService.TryGetActiveManager(_item.Id, out var activeMgr) && activeMgr != null)
+            if (_item != null)
             {
-                try
-                {
-                    await TorrentSelection.ApplyToManagerAsync(activeMgr, _item);
-                }
-                catch (Exception ex)
-                {
-                    Log.Write("torrent file selection apply failed: " + ex.Message);
-                }
-            }
-            App.Instance.Manager.Save();
-        }
+                _item.TorrentSequential = SequentialDownload;
+                _item.TorrentSelectedFiles = TorrentSelection.GetSelectedIndices(_entries);
+                _item.TorrentFilePriorities = _entries.ToDictionary(x => x.Index, x => x.Priority);
+                long selectedBytes = TorrentSelection.ComputeSelectedSize(_entries);
+                if (selectedBytes > 0)
+                    _item.TotalSize = selectedBytes;
 
-        DialogResult = true;
-        Close();
+                if (TorrentService.TryGetActiveManager(_item.Id, out var activeMgr) && activeMgr != null)
+                {
+                    try
+                    {
+                        await TorrentSelection.ApplyToManagerAsync(activeMgr, _item);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Write("torrent file selection apply failed: " + ex.Message);
+                    }
+                }
+                App.Instance?.Manager.Save();
+            }
+
+            if (System.Windows.Interop.ComponentDispatcher.IsThreadModal)
+                DialogResult = true;
+            else
+                Close();
+        }
+        finally
+        {
+            _submitting = false;
+            UpdateSummary();
+        }
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
-        DialogResult = false;
-        Close();
+        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal)
+            DialogResult = false;
+        else
+            Close();
     }
 }

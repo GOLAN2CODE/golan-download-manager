@@ -108,7 +108,7 @@ public static class TorrentRunner
 
         try
         {
-            int itemMaxRate = item.SpeedLimitKB > 0 ? item.SpeedLimitKB * 1024 : 0;
+            int itemMaxRate = TorrentService.ComputeMaxRateBytesPerSec(item.SpeedLimitKB);
             var torrentSettings = new TorrentSettingsBuilder
             {
                 AllowDht = !loopbackOnly && settings.TorrentDhtEnabled,

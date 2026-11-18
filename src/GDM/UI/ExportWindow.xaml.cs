@@ -13,12 +13,18 @@ public partial class ExportWindow : Window
         QueueRadio.Content = Loc.T("win.export.queue_format", queueCount);
         SelectedRadio.Content = Loc.T("win.export.selected_format", selectedCount);
         AllRadio.Content = Loc.T("win.export.all");
+        QueueRadio.IsEnabled = queueCount > 0;
         SelectedRadio.IsEnabled = selectedCount > 0;
     }
 
     void Ok_Click(object sender, RoutedEventArgs e)
     {
         Scope = QueueRadio.IsChecked == true ? "queue" : SelectedRadio.IsChecked == true ? "selected" : "all";
-        DialogResult = true;
+        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal)
+            DialogResult = true;
+        else
+            Close();
     }
+
+    void Cancel_Click(object sender, RoutedEventArgs e) => Close();
 }

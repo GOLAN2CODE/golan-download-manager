@@ -35,6 +35,10 @@ public static class HostResolvers
         new MediaFireResolver(),
         new GitHubResolver(),
         new MegaResolver(),
+        new SourceForgeResolver(),
+        new PixeldrainResolver(),
+        new GoFileResolver(),
+        new TelegramResolver(),
     ];
 
     /// <summary>
@@ -187,7 +191,9 @@ public static class HostResolvers
             if (hopReq.Headers.UserAgent.Count == 0)
                 hopReq.Headers.TryAddWithoutValidation("User-Agent", HttpDownloader.DefaultUserAgent);
 
-            var resp = await http.SendAsync(hopReq, ct).ConfigureAwait(false);
+            var resp = http is System.Net.Http.HttpClient hc
+                ? await hc.SendAsync(hopReq, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false)
+                : await http.SendAsync(hopReq, ct).ConfigureAwait(false);
             int code = (int)resp.StatusCode;
             if (code is 301 or 302 or 303 or 307 or 308 && resp.Headers.Location is { } loc)
             {
@@ -279,6 +285,10 @@ public static class HostResolvers
         {
             throw;
         }
+        catch (DownloadException ex) when (ex.NonFallback)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             Log.Write($"resolver fallback for {u.Host}: {ex.Message}");
@@ -306,18 +316,7 @@ public static class HostResolvers
             ? (resp.Content.Headers.ContentRange?.Length ?? -1)
             : (resp.Content.Headers.ContentRange?.Length ?? resp.Content.Headers.ContentLength ?? -1);
 
-        string? name = null;
-        var cd = resp.Content.Headers.ContentDisposition;
-        if (cd != null)
-        {
-            var candidate = (cd.FileNameStar ?? cd.FileName)?.Trim('"', '\'', ' ');
-            if (!string.IsNullOrWhiteSpace(candidate))
-            {
-                try { candidate = Uri.UnescapeDataString(candidate); }
-                catch (UriFormatException) { /* Keep raw candidate if percent-encoding is malformed */ }
-                name = SanitizeDecodedFileName(candidate);
-            }
-        }
+        string? name = SanitizeDecodedFileName(HttpDownloader.ExtractContentDispositionFileName(resp));
 
         if (string.IsNullOrWhiteSpace(name) && fallbackUri != null)
         {

@@ -11,6 +11,7 @@ public sealed partial class HttpDownloader
     {
         Options = settings;
         Client = Build(settings);
+        Integrity.Configure(settings);
         DownloadItem.TempRoot = string.IsNullOrWhiteSpace(settings.TempDir) ? "" : settings.TempDir;
     }
 
@@ -83,17 +84,8 @@ public sealed partial class HttpDownloader
         return BuildWebProxy(s).IsBypassed(uri);
     }
 
-    static HttpClient Build(AppSettings s)
+    internal static void ApplyProxy(SocketsHttpHandler handler, AppSettings s)
     {
-        var handler = new SocketsHttpHandler
-        {
-            AutomaticDecompression = DecompressionMethods.None,
-            AllowAutoRedirect = false, // redirects are followed by hand so cookies never leak to other hosts
-            UseCookies = false,
-            MaxConnectionsPerServer = 64,
-            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-            ConnectTimeout = TimeSpan.FromSeconds(20),
-        };
         switch (s.ProxyMode)
         {
             case "none":
@@ -107,6 +99,20 @@ public sealed partial class HttpDownloader
                 handler.UseProxy = true; // system proxy
                 break;
         }
+    }
+
+    static HttpClient Build(AppSettings s)
+    {
+        var handler = new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.None,
+            AllowAutoRedirect = false, // redirects are followed by hand so cookies never leak to other hosts
+            UseCookies = false,
+            MaxConnectionsPerServer = 64,
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            ConnectTimeout = TimeSpan.FromSeconds(20),
+        };
+        ApplyProxy(handler, s);
         return new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
@@ -122,10 +128,11 @@ public sealed partial class HttpDownloader
         return $"{scheme}://{auth}{s.ProxyHost}:{s.ProxyPort}";
     }
 
-    sealed record RequestContext(Uri? OriginalUri, string Referrer, string UserAgent, Func<Uri, bool, string> Cookies, string Login, string Password);
+    sealed record RequestContext(Uri? OriginalUri, string CookieHost, string Referrer, string UserAgent, Func<Uri, bool, string> Cookies, string Login, string Password);
 
     static RequestContext ContextFor(DownloadItem item) => new(
         Uri.TryCreate(item.Url, UriKind.Absolute, out var orig) ? orig : null,
+        item.CookieHost.Trim(),
         item.Referrer,
         item.UserAgent,
         (uri, sameHostAndSecure) => CookiesForRequest(item, uri, sameHostAndSecure),
@@ -138,8 +145,12 @@ public sealed partial class HttpDownloader
         if (!sameHostAndSecure) return "";
         if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) return "";
         if (string.IsNullOrEmpty(item.ProtectedCookies) || string.IsNullOrWhiteSpace(item.CookieHost)) return "";
+        var cookieHost = item.CookieHost.Trim();
+        if (!uri.Host.Equals(cookieHost, StringComparison.OrdinalIgnoreCase)) return "";
         if (Uri.TryCreate(item.Url, UriKind.Absolute, out var orig))
         {
+            if (!orig.Host.Equals(cookieHost, StringComparison.OrdinalIgnoreCase))
+                return uri.Scheme == Uri.UriSchemeHttps ? item.Cookies : "";
             if (orig.Scheme == Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttps)
                 return "";
             bool defaultUpgrade = orig.Scheme == Uri.UriSchemeHttp && uri.Scheme == Uri.UriSchemeHttps
@@ -147,8 +158,10 @@ public sealed partial class HttpDownloader
             if (orig.Port != uri.Port && !defaultUpgrade)
                 return "";
         }
-        var cookieHost = item.CookieHost.Trim();
-        if (!uri.Host.Equals(cookieHost, StringComparison.OrdinalIgnoreCase)) return "";
+        else if (uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return "";
+        }
         return item.Cookies;
     }
 
@@ -227,7 +240,26 @@ public sealed partial class HttpDownloader
         return host.Equals(hostPat, StringComparison.Ordinal) || host.EndsWith("." + hostPat, StringComparison.Ordinal);
     }
 
-    static HttpRequestMessage NewRequest(Uri uri, RequestContext ctx, bool sameHostAndSecure)
+    public static string? ReferrerForRequest(string? referrer, Uri targetUri, bool allowReferrer = true)
+    {
+        if (!allowReferrer || string.IsNullOrWhiteSpace(referrer)) return null;
+        if (!Uri.TryCreate(referrer.Trim(), UriKind.Absolute, out var refUri)) return null;
+        if (refUri.Scheme != Uri.UriSchemeHttp && refUri.Scheme != Uri.UriSchemeHttps) return null;
+        if (refUri.Scheme == Uri.UriSchemeHttps && targetUri.Scheme != Uri.UriSchemeHttps) return null;
+
+        bool sameOrigin = refUri.Scheme.Equals(targetUri.Scheme, StringComparison.OrdinalIgnoreCase)
+            && refUri.Host.Equals(targetUri.Host, StringComparison.OrdinalIgnoreCase)
+            && refUri.Port == targetUri.Port;
+        if (sameOrigin)
+        {
+            return (refUri.UserInfo.Length > 0 || refUri.Fragment.Length > 0)
+                ? new UriBuilder(refUri) { UserName = "", Password = "", Fragment = "" }.Uri.AbsoluteUri
+                : refUri.AbsoluteUri;
+        }
+        return new UriBuilder(refUri.Scheme, refUri.Host, refUri.IsDefaultPort ? -1 : refUri.Port).Uri.AbsoluteUri;
+    }
+
+    static HttpRequestMessage NewRequest(Uri uri, RequestContext ctx, bool sameHostAndSecure, bool allowReferrer = true, bool? allowCookies = null)
     {
         var req = new HttpRequestMessage(HttpMethod.Get, uri);
         var ua = !string.IsNullOrWhiteSpace(ctx.UserAgent) ? ctx.UserAgent
@@ -235,21 +267,9 @@ public sealed partial class HttpDownloader
         req.Headers.TryAddWithoutValidation("User-Agent", ua);
         req.Headers.TryAddWithoutValidation("Accept", "*/*");
         req.Headers.TryAddWithoutValidation("Accept-Encoding", "identity");
-        if (sameHostAndSecure && !string.IsNullOrWhiteSpace(ctx.Referrer))
-        {
-            if (Uri.TryCreate(ctx.Referrer.Trim(), UriKind.Absolute, out var refUri))
-            {
-                if ((refUri.Scheme == Uri.UriSchemeHttp || refUri.Scheme == Uri.UriSchemeHttps)
-                    && !(refUri.Scheme == Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttps))
-                {
-                    var safeRef = (refUri.UserInfo.Length > 0 || refUri.Fragment.Length > 0)
-                        ? new UriBuilder(refUri) { UserName = "", Password = "", Fragment = "" }.Uri.AbsoluteUri
-                        : ctx.Referrer.Trim();
-                    req.Headers.TryAddWithoutValidation("Referer", safeRef);
-                }
-            }
-        }
-        var cookies = ctx.Cookies(uri, sameHostAndSecure);
+        if (ReferrerForRequest(ctx.Referrer, uri, allowReferrer) is { } safeRef)
+            req.Headers.TryAddWithoutValidation("Referer", safeRef);
+        var cookies = ctx.Cookies(uri, allowCookies ?? sameHostAndSecure);
         if (!string.IsNullOrWhiteSpace(cookies)) req.Headers.TryAddWithoutValidation("Cookie", cookies);
 
         // Credentials: the download's own login, else a saved site login. Never sent to another host or over https->http downgrade.

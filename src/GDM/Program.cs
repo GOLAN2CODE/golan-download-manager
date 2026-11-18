@@ -44,11 +44,13 @@ public static class Program
                 return RunPackExtension(args);
             if (CliParser.IsCliInvocation(args))
                 return CliRunner.RunFromMain(args);
+            if (args.Any(a => a.Trim().Trim('"').StartsWith("data:", StringComparison.OrdinalIgnoreCase)))
+                return 2;
         }
 
         string? magnetArg = args.Select(a => a.Trim().Trim('"')).FirstOrDefault(MagnetValidator.IsMagnetUri);
         string? torrentArg = args.Select(a => a.Trim().Trim('"')).FirstOrDefault(IsTorrentFileArg);
-        string? urlArg = args.FirstOrDefault(FileNames.IsHttpUrl);
+        string? urlArg = args.Select(a => a.Trim().Trim('"')).FirstOrDefault(FileNames.IsNetworkDownloadUrl);
 
         using var mutex = new Mutex(true, @"Local\Golan.GDM.Single." + Ipc.PipeName, out bool first);
         if (!first)
@@ -62,7 +64,7 @@ public static class Program
             {
                 string fullTorrent = torrentArg;
                 try { fullTorrent = Path.GetFullPath(torrentArg); }
-                catch (ArgumentException) { /* keep raw torrent path if normalization fails */ }
+                catch (Exception) { /* keep raw torrent path if normalization fails */ }
                 msg = new JsonObject { ["action"] = "torrent", ["path"] = fullTorrent };
             }
             else if (urlArg != null)
@@ -71,7 +73,7 @@ public static class Program
             }
             else
             {
-                msg = new JsonObject { ["action"] = "noop".Equals(args.Contains("--background") ? "noop" : "show", StringComparison.Ordinal) ? "noop" : "show" };
+                msg = new JsonObject { ["action"] = HasBackgroundFlag(args) ? "noop" : "show" };
             }
             try { Ipc.SendAsync(msg, 3000).GetAwaiter().GetResult(); }
             catch (Exception ex) { Log.Write("ipc forward failed: " + ex.Message); }
@@ -80,13 +82,28 @@ public static class Program
 
         var app = new App
         {
-            StartHidden = args.Contains("--background"),
+            StartHidden = HasBackgroundFlag(args),
             StartUrl = urlArg ?? magnetArg,
             StartTorrentPath = torrentArg,
         };
         app.InitializeComponent();
-        return app.Run();
+        int exitCode = app.Run();
+        if (RestartRequested)
+        {
+            // Asked from the Welcome window after a language change: free the single-instance lock, then start again.
+            try { mutex.ReleaseMutex(); }
+            catch (ApplicationException) { /* the lock was not held by this thread: the new copy will simply wait its turn */ }
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(AppPaths.ExePath) { UseShellExecute = false }); }
+            catch (Exception ex) { Log.Write("restart failed: " + ex.Message); }
+        }
+        return exitCode;
     }
+
+    /// <summary>Set before <see cref="App.ExitApp"/> to start Golan again right after it closes.</summary>
+    public static bool RestartRequested { get; set; }
+
+    public static bool HasBackgroundFlag(string[]? args)
+        => args != null && args.Any(a => string.Equals(a?.Trim().Trim('"'), "--background", StringComparison.OrdinalIgnoreCase));
 
     public static StartupArgKind ClassifyStartupArg(string[]? args)
     {
@@ -117,7 +134,7 @@ public static class Program
                 return StartupArgKind.MagnetUri;
             if (IsTorrentFileArg(a))
                 return StartupArgKind.TorrentFile;
-            if (FileNames.IsHttpUrl(a))
+            if (FileNames.IsNetworkDownloadUrl(a))
                 return StartupArgKind.HttpUrl;
         }
 
@@ -129,7 +146,7 @@ public static class Program
         if (string.IsNullOrWhiteSpace(arg))
             return false;
         var s = arg.Trim().Trim('"');
-        if (FileNames.IsHttpUrl(s) || MagnetValidator.IsMagnetUri(s))
+        if (FileNames.IsDownloadableUrl(s) || MagnetValidator.IsMagnetUri(s))
             return false;
         return s.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase);
     }

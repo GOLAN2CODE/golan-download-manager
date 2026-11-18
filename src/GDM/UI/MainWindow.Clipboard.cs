@@ -41,20 +41,52 @@ public partial class MainWindow
         catch (ExternalException) { return; /* clipboard locked by another process */ }
         if (text.Length == 0 || text == _lastClipboard || text.Contains('\n')) return;
         _lastClipboard = text;
-        if (MagnetValidator.IsMagnetUri(text))
-        {
-            App.Instance.ShowAddUrl(text);
-            return;
-        }
-        if (!FileNames.IsHttpUrl(text) || _settings.IsException(text)) return;
-
-        var ext = Path.GetExtension(new Uri(text).AbsolutePath).TrimStart('.').ToLowerInvariant();
-        if (ext.Length > 0 && _settings.ExtensionList.Contains(ext))
+        if (ShouldCaptureClipboardUrl(text, _settings))
             App.Instance.ShowAddUrl(text);
     }
 
+    public static bool ShouldCaptureClipboardUrl(string? text, AppSettings settings)
+        => FileNames.ShouldCaptureClipboardUrl(text, settings);
+
     /// <summary>Called when Golan copies something itself, so it doesn't pop a dialog for its own copy.</summary>
     public void SuppressClipboard() => _ignoreClipboardUntil = DateTime.Now.AddSeconds(2);
+
+    public static List<BatchLink> ExtractLinksFromText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return [];
+        var rx = new System.Text.RegularExpressions.Regex(@"(?:https?|ftps?)://[^\s""'<>]+",
+            System.Text.RegularExpressions.RegexOptions.NonBacktracking, TimeSpan.FromSeconds(2));
+        try
+        {
+            var list = new List<BatchLink>();
+            foreach (System.Text.RegularExpressions.Match m in rx.Matches(text))
+            {
+                var u = TrimExtractedUrl(m.Value);
+                if (FileNames.IsNetworkDownloadUrl(u))
+                    list.Add(new BatchLink(u, ""));
+            }
+            return list.DistinctBy(l => l.Url).ToList();
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
+        {
+            Log.Write("batch clipboard regex timeout: " + ex.Message);
+            return [];
+        }
+    }
+
+    static string TrimExtractedUrl(string raw)
+    {
+        var u = raw;
+        while (u.Length > 0)
+        {
+            char last = u[^1];
+            if (last is '.' or ',' or ';') { u = u[..^1]; continue; }
+            if (last == ')' && u.Count(c => c == ')') > u.Count(c => c == '(')) { u = u[..^1]; continue; }
+            if (last == ']' && u.Count(c => c == ']') > u.Count(c => c == '[')) { u = u[..^1]; continue; }
+            break;
+        }
+        return u;
+    }
 
     void Clipboard_PasteUrl()
     {
@@ -62,7 +94,15 @@ public partial class MainWindow
         try
         {
             var t = Clipboard.ContainsText() ? Clipboard.GetText().Trim() : "";
-            App.Instance.ShowAddUrl((FileNames.IsHttpUrl(t) || MagnetValidator.IsMagnetUri(t)) ? t : null);
+            if (FileNames.IsDownloadableUrl(t) || MagnetValidator.IsMagnetUri(t))
+            {
+                App.Instance.ShowAddUrl(t);
+                return;
+            }
+            var links = ExtractLinksFromText(t);
+            if (links.Count > 1) App.Instance.ShowBatch(links, "", "");
+            else if (links.Count == 1) App.Instance.ShowAddUrl(links[0].Url);
+            else App.Instance.ShowAddUrl(null);
         }
         catch (ExternalException ex)
         {
@@ -75,7 +115,7 @@ public partial class MainWindow
         try
         {
             var t = Clipboard.ContainsText() ? Clipboard.GetText().Trim() : "";
-            return (FileNames.IsHttpUrl(t) || MagnetValidator.IsMagnetUri(t)) ? t : null;
+            return (FileNames.IsDownloadableUrl(t) || MagnetValidator.IsMagnetUri(t)) ? t : null;
         }
         catch (ExternalException)
         {

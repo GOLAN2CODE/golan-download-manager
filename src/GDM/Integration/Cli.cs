@@ -246,6 +246,7 @@ public sealed class DownloadManagerCliTarget : ICliTarget
                 request.Url,
                 referrer: request.Referer ?? "",
                 fileName: safeName);
+            item.AddedManually = true;
 
             if (!string.IsNullOrWhiteSpace(safeName))
                 item.NameLocked = true;
@@ -253,13 +254,23 @@ public sealed class DownloadManagerCliTarget : ICliTarget
             if (fullFolder != null)
                 item.SaveDir = fullFolder;
 
-            if (!string.IsNullOrWhiteSpace(request.Quality))
+            if (MediaDownloader.LooksLikeMediaPage(request.Url))
+            {
+                var qVal = !string.IsNullOrWhiteSpace(request.Quality)
+                    ? request.Quality.Trim().TrimEnd('p', 'P')
+                    : (!string.IsNullOrWhiteSpace(_manager.Settings.DefaultVideoQuality) ? _manager.Settings.DefaultVideoQuality : "best");
+                item.Kind = DownloadKind.Media;
+                item.MediaQuality = qVal;
+                item.MediaOptions = _manager.Settings.CreateDefaultMediaOptions(qVal);
+                item.Category = qVal is "mp3" or "m4a" or "audio" ? "music" : "video";
+                if (fullFolder == null)
+                    item.SaveDir = _manager.Settings.FolderFor(item.Category);
+            }
+            else if (!string.IsNullOrWhiteSpace(request.Quality))
             {
                 var qVal = request.Quality.Trim().TrimEnd('p', 'P');
                 item.MediaQuality = qVal;
                 item.MediaOptions = _manager.Settings.CreateDefaultMediaOptions(qVal);
-                if (MediaDownloader.LooksLikeMediaPage(request.Url))
-                    item.Kind = DownloadKind.Media;
             }
 
             if (!string.IsNullOrWhiteSpace(request.ExpectedHash))

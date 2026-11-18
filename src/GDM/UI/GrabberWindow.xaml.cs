@@ -32,10 +32,14 @@ public partial class GrabberWindow : Window
         DownloadAtOnceBox.SelectedItem = 4;
         FilesGrid.ItemsSource = _files;
         LoadDefaults();
+        ShowStep();
         _statsTimer.Tick += (_, _) => UpdateStats();
         _statsTimer.Start();
-        Closed += (_, _) => _crawlCts.Cancel();
-        Closed += (_, _) => _statsTimer.Stop();
+        Closed += (_, _) =>
+        {
+            _statsTimer.Stop();
+            try { _crawlCts.Cancel(); _crawlCts.Dispose(); } catch { /* already disposed */ }
+        };
     }
 
     sealed record PresetItem(string Name, string Mask);
@@ -62,7 +66,7 @@ public partial class GrabberWindow : Window
         DuplicatesBox.IsChecked = true;
         DontParentBox.IsChecked = true;
         DescriptionBox.IsChecked = true;
-        SavedBox.ItemsSource = GrabberProject.List().Select(n => new PresetItem(n, n)).ToList();
+        RefreshSavedProjects();
         foreach (var p in GrabberProject.Presets)
         {
             var chip = new ToggleButton
@@ -72,9 +76,25 @@ public partial class GrabberWindow : Window
                 Margin = new Thickness(0, 0, 6, 6),
                 Tag = p.Mask
             };
-            chip.Click += (_, _) => MasksBox.Text = (string)chip.Tag;
+            chip.Click += (_, _) =>
+            {
+                MasksBox.Text = (string)chip.Tag;
+                foreach (var other in PresetChips.Children.OfType<ToggleButton>())
+                    other.IsChecked = other == chip;
+            };
             PresetChips.Children.Add(chip);
         }
+        MasksBox.TextChanged += (_, _) =>
+        {
+            var current = MasksBox.Text.Trim();
+            foreach (var chip in PresetChips.Children.OfType<ToggleButton>())
+                chip.IsChecked = string.Equals(chip.Tag as string, current, StringComparison.OrdinalIgnoreCase);
+        };
+    }
+
+    void RefreshSavedProjects()
+    {
+        SavedBox.ItemsSource = GrabberProject.List().Select(n => new PresetItem(n, n)).ToList();
     }
 
     void Preset_Changed(object sender, SelectionChangedEventArgs e)
@@ -152,6 +172,10 @@ public partial class GrabberWindow : Window
         _project.HideDuplicates = DuplicatesBox.IsChecked == true;
         _project.MinSizeKB = Long(MinSizeBox);
         _project.MaxSizeKB = Long(MaxSizeBox);
+        if (_project.MaxSizeKB > 0 && _project.MinSizeKB > _project.MaxSizeKB)
+        {
+            (_project.MinSizeKB, _project.MaxSizeKB) = (_project.MaxSizeKB, _project.MinSizeKB);
+        }
         _project.FilesOnly = FilesOnlyBox.Text.Trim();
         _project.FilesSkip = FilesSkipBox.Text.Trim();
         _project.DownloadAllAtOnce = AllAtOnceBox.IsChecked == true;
@@ -172,6 +196,19 @@ public partial class GrabberWindow : Window
 
     void Next_Click(object sender, RoutedEventArgs e)
     {
+        if (_step == 1)
+        {
+            var url = StartUrlBox.Text.Trim();
+            if (!FileNames.IsHttpUrl(url))
+            {
+                ShowError(Loc.T("win.grabber.err.invalid_url"));
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(NameBox.Text) && Uri.TryCreate(url, UriKind.Absolute, out var u) && !string.IsNullOrWhiteSpace(u.Host))
+            {
+                NameBox.Text = u.Host;
+            }
+        }
         if (_step < 4)
         {
             _step++;
@@ -219,10 +256,13 @@ public partial class GrabberWindow : Window
             Loc.T("win.grabber.step4_hint")
         };
         StepHint.Text = hints[_step];
+        ValidationText.Visibility = Visibility.Collapsed;
         BackButton.Visibility = Visibility.Visible;
         BackButton.IsEnabled = _step > 1;
         NextButton.Visibility = _step == 4 ? Visibility.Collapsed : Visibility.Visible;
+        NextButton.IsDefault = _step < 4;
         StartButton.Visibility = _step == 4 ? Visibility.Visible : Visibility.Collapsed;
+        StartButton.IsDefault = _step == 4;
         var dots = new[] { Dot1, Dot2, Dot3, Dot4 };
         for (var i = 0; i < dots.Length; i++)
         {
@@ -248,44 +288,71 @@ public partial class GrabberWindow : Window
     void Start_Click(object sender, RoutedEventArgs e)
     {
         CopyToProject();
+        if (string.IsNullOrWhiteSpace(_project.Name) && Uri.TryCreate(_project.StartUrl, UriKind.Absolute, out var startUri) && !string.IsNullOrWhiteSpace(startUri.Host))
+        {
+            NameBox.Text = startUri.Host;
+            _project.Name = startUri.Host;
+        }
         if (string.IsNullOrWhiteSpace(_project.Name))
         {
+            _step = 1;
+            ShowStep();
             ShowError(Loc.T("win.grabber.err.no_name"));
             return;
         }
         if (!FileNames.IsHttpUrl(_project.StartUrl))
         {
+            _step = 1;
+            ShowStep();
             ShowError(Loc.T("win.grabber.err.invalid_url"));
             return;
         }
-        if (_project.SaveMode == "folder" && string.IsNullOrWhiteSpace(_project.SaveFolder))
+        if (_project.SaveMode == "folder")
         {
-            ShowError(Loc.T("win.grabber.err.no_folder"));
-            return;
+            if (string.IsNullOrWhiteSpace(_project.SaveFolder))
+            {
+                ShowError(Loc.T("win.grabber.err.no_folder"));
+                return;
+            }
+            if (!AddDownloadWindow.IsAllowedFolder(_project.SaveFolder, _manager.Settings))
+            {
+                ShowError(Loc.T("main.add.invalidFolder"));
+                return;
+            }
         }
         try
         {
             _project.Save();
+            RefreshSavedProjects();
         }
         catch (Exception ex)
         {
-            ShowError(Loc.T("win.grabber.err.save_failed", ex.Message));
+            ShowError(Loc.T("win.grabber.err.save_failed", FriendlyError.Format(ex)));
             return;
         }
-        _crawlCts.Cancel();
+        try { _crawlCts.Cancel(); _crawlCts.Dispose(); } catch { /* previous token disposed */ }
         _crawlCts = new CancellationTokenSource();
         _files.Clear();
         FoundTree.Items.Clear();
         StopButton.IsEnabled = true;
-        _grabber = new SiteGrabber(_project);
-        _grabber.FileFound += file => Dispatcher.BeginInvoke(() => AddFile(file));
+        ResultsEmptyText.Text = Loc.T("win.grabber.empty_results");
+        ResultsEmptyText.Visibility = Visibility.Visible;
+        var grabber = new SiteGrabber(_project);
+        _grabber = grabber;
+        grabber.FileFound += file => Dispatcher.BeginInvoke(() =>
+        {
+            if (ReferenceEquals(_grabber, grabber))
+                AddFile(file);
+        });
         WizardScroll.Visibility = Visibility.Collapsed;
         ResultsView.Visibility = Visibility.Visible;
         NextButton.Visibility = Visibility.Collapsed;
+        NextButton.IsDefault = false;
         BackButton.Visibility = Visibility.Visible;
         BackButton.IsEnabled = true;
         StartButton.Visibility = Visibility.Collapsed;
-        _ = RunGrabberAsync(_grabber);
+        StartButton.IsDefault = false;
+        _ = RunGrabberAsync(grabber);
     }
 
     void SaveProject_Click(object sender, RoutedEventArgs e)
@@ -299,21 +366,23 @@ public partial class GrabberWindow : Window
         try
         {
             _project.Save();
+            RefreshSavedProjects();
             ValidationText.Text = Loc.T("win.grabber.project_saved");
             ValidationText.Foreground = (Brush)FindResource("Success");
             ValidationText.Visibility = Visibility.Visible;
         }
         catch (Exception ex)
         {
-            ShowError(Loc.T("win.grabber.err.save_failed", ex.Message));
+            ShowError(Loc.T("win.grabber.err.save_failed", FriendlyError.Format(ex)));
         }
     }
 
     async Task RunGrabberAsync(SiteGrabber grabber)
     {
+        var token = _crawlCts.Token;
         try
         {
-            await grabber.RunAsync(_crawlCts.Token);
+            await grabber.RunAsync(token);
         }
         catch (OperationCanceledException)
         {
@@ -321,13 +390,24 @@ public partial class GrabberWindow : Window
         }
         catch (Exception ex)
         {
-            await Dispatcher.InvokeAsync(() => StatusText.Text = Loc.T("win.grabber.status.error", ex.Message));
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (ReferenceEquals(_grabber, grabber))
+                    StatusText.Text = Loc.T("win.grabber.status.error", FriendlyError.Format(ex));
+            });
         }
         finally
         {
             await Dispatcher.InvokeAsync(() =>
             {
+                if (!ReferenceEquals(_grabber, grabber))
+                    return;
                 StopButton.IsEnabled = false;
+                if (_files.Count == 0)
+                {
+                    ResultsEmptyText.Text = Loc.T("win.grabber.empty_done");
+                    ResultsEmptyText.Visibility = Visibility.Visible;
+                }
                 UpdateStats();
             });
         }
@@ -344,6 +424,7 @@ public partial class GrabberWindow : Window
     void AddFile(GrabbedFile file)
     {
         _files.Add(file);
+        ResultsEmptyText.Visibility = Visibility.Collapsed;
         var group = FoundTree.Items.OfType<TreeViewItem>().FirstOrDefault(x => Equals(x.Tag, file.FoundOn));
         if (group == null)
         {
@@ -439,7 +520,7 @@ public partial class GrabberWindow : Window
         {
             return;
         }
-        var pick = App.Instance.PickQueue(this, selected.Count);
+        var pick = App.Instance?.PickQueue(this, selected.Count);
         if (pick == null)
         {
             return;
@@ -494,6 +575,7 @@ public partial class GrabberWindow : Window
 
     void ShowError(string text)
     {
+        ValidationText.Foreground = (Brush)FindResource("Danger");
         ValidationText.Text = text;
         ValidationText.Visibility = Visibility.Visible;
     }

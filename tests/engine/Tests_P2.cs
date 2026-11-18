@@ -633,7 +633,8 @@ public static class Tests_P2
                     await WaitUntilAsync(() => goodItem.Status == DownloadStatus.Completed && !mgr.IsRunning(perm403));
 
                     Check("M3: Permanent HTTP 403 (FailKind.Expired) fails immediately with RetryCount == 0",
-                        perm403.Status == DownloadStatus.Error && perm403.RetryCount == 0 && forbidden403Hits == 1,
+                        // hit 1 = ranged probe, hit 2 = the single plain-GET fallback for servers that reject Range with 403
+                        perm403.Status == DownloadStatus.Error && perm403.RetryCount == 0 && forbidden403Hits <= 2,
                         $"Status={perm403.Status}, RetryCount={perm403.RetryCount}, hits={forbidden403Hits}");
 
                     await mgr.RemoveAsync(perm403, deleteFile: true);

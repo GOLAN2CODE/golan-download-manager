@@ -585,8 +585,8 @@ public static class Tests_P4
             string leakedCookie = crossJson["cookie"]?.GetValue<string>() ?? "";
             string leakedReferer = crossJson["referer"]?.GetValue<string>() ?? "";
             string leakedAuth = crossJson["auth"]?.GetValue<string>() ?? "";
-            Check("P4-3: ZipPreview.RangeAsync strips Referer, Cookie, and Basic Auth when redirected to another host",
-                string.IsNullOrEmpty(leakedCookie) && string.IsNullOrEmpty(leakedReferer) && string.IsNullOrEmpty(leakedAuth),
+            Check("P4-3: ZipPreview.RangeAsync strips Cookie and Basic Auth and trims Referer to origin when redirected to another host",
+                string.IsNullOrEmpty(leakedCookie) && leakedReferer == $"http://127.0.0.1:{echoSrv.Port}/" && string.IsNullOrEmpty(leakedAuth),
                 $"cookie='{leakedCookie}', referer='{leakedReferer}', auth='{leakedAuth}'");
 
             var sameItem = new DownloadItem

@@ -7,7 +7,7 @@
     <DockPanel>
         <StackPanel Margin="24">
             <TextBlock Text="{core:T win.limiter.title}" FontSize="20" FontWeight="SemiBold"/>
-            <TextBlock Text="{core:T win.limiter.subtitle}" Foreground="{DynamicResource Muted}" Margin="0,4,0,18"/>
+            <TextBlock Text="{core:T win.limiter.subtitle}" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,4,0,18"/>
             <Border Style="{StaticResource Card}">
                 <StackPanel>
                     <CheckBox x:Name="EnabledBox" Content="{core:T win.limiter.enable}" Checked="EnabledChanged" Unchecked="EnabledChanged"/>
@@ -18,7 +18,8 @@
                         <TextBlock x:Name="SpeedText" HorizontalAlignment="Right" Foreground="{DynamicResource AccentText}" FontWeight="SemiBold"/>
                     </DockPanel>
                     <Slider x:Name="SpeedSlider" Minimum="16" Maximum="102400" TickFrequency="16" IsSnapToTickEnabled="True"
-                            ValueChanged="SpeedSlider_ValueChanged" Margin="0,12,0,0"/>
+                            ValueChanged="SpeedSlider_ValueChanged" Margin="0,12,0,0"
+                            AutomationProperties.Name="{core:T win.limiter.speed_aria}"/>
                     <WrapPanel Margin="0,12,0,0">
                         <Button Content="{core:T win.limiter.preset_256k}" Tag="256" Click="Preset_Click" Padding="10,5"/>
                         <Button Content="{core:T win.limiter.preset_512k}" Tag="512" Click="Preset_Click" Padding="10,5" Margin="6,0,0,0"/>

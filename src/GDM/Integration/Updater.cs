@@ -154,14 +154,14 @@ public static partial class Updater
         return SHA256.HashData(fs);
     }
 
-    public static async Task<UpdateFeed?> CheckForUpdateAsync(
+    public static async Task<(UpdateFeed? Feed, string? Error)> CheckForUpdateDetailedAsync(
         AppSettings settings,
         bool force = false,
         CancellationToken ct = default)
     {
-        if (settings == null) return null;
+        if (settings == null) return (null, null);
         if (!force && !ShouldCheckNow(settings, DateTime.UtcNow, AppPaths.IsPortable))
-            return null;
+            return (null, null);
 
         var feedUrl = force && !settings.CheckForUpdates
             ? (string.IsNullOrWhiteSpace(settings.UpdateFeedUrl) ? OfficialFeedUrl : settings.UpdateFeedUrl.Trim())
@@ -169,7 +169,7 @@ public static partial class Updater
         if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var uri)
             || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
-            return null;
+            return (null, force ? Loc.T("update.err_https") : null);
         }
 
         try
@@ -194,19 +194,28 @@ public static partial class Updater
             }
 
             if (json == null)
-                return null;
+                return (null, force ? Loc.T("core.err.network") : null);
 
             settings.LastUpdateCheck = DateTime.UtcNow;
             settings.Save();
 
             var feed = ParseFeed(json);
-            return IsNewer(App.Version, feed.Version) ? feed : null;
+            return (IsNewer(App.Version, feed.Version) ? feed : null, null);
         }
         catch (Exception ex)
         {
             Log.Write("update check failed: " + ex.Message);
-            return null;
+            return (null, force ? FriendlyError.Format(ex) : null);
         }
+    }
+
+    public static async Task<UpdateFeed?> CheckForUpdateAsync(
+        AppSettings settings,
+        bool force = false,
+        CancellationToken ct = default)
+    {
+        var (feed, _) = await CheckForUpdateDetailedAsync(settings, force, ct);
+        return feed;
     }
 
     public static async Task<(bool Ok, string TempFilePath, string Error)> DownloadAndVerifyAsync(
@@ -244,7 +253,7 @@ public static partial class Updater
         {
             MediaDownloader.TryDelete(item.TempPath);
             MediaDownloader.TryDelete(item.FullPath);
-            return (false, "", ex.Message);
+            return (false, "", FriendlyError.Format(ex));
         }
 
         if (!string.IsNullOrWhiteSpace(item.ResolvedUrl))

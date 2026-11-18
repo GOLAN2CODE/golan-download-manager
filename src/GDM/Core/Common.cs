@@ -123,6 +123,24 @@ public static class Json
 public static class Log
 {
     static readonly object Gate = new();
+    static readonly Regex UserInfoPrefixRx = new(
+        @"^([a-zA-Z][a-zA-Z0-9+.-]*://)[^/?#]+@",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+
+    /// <summary>Strips embedded credentials (<c>user:password@</c> or <c>user@</c>) from a URL before logging.</summary>
+    public static string StripUserInfo(string? url)
+    {
+        if (string.IsNullOrEmpty(url)) return "";
+        var trimmed = url.Trim();
+        if (!trimmed.Contains('@', StringComparison.Ordinal)) return trimmed;
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var u))
+        {
+            if (!string.IsNullOrEmpty(u.UserInfo))
+                return new UriBuilder(u) { UserName = "", Password = "" }.Uri.AbsoluteUri;
+            return UserInfoPrefixRx.Replace(trimmed, "$1");
+        }
+        return UserInfoPrefixRx.Replace(trimmed, "$1");
+    }
 
     public static void Write(string message)
     {
@@ -214,8 +232,17 @@ public static class FileNames
     static readonly HashSet<string> ReservedNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$",
-        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "COM\u00B9", "COM\u00B2", "COM\u00B3",
+        "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "LPT\u00B9", "LPT\u00B2", "LPT\u00B3",
+    };
+
+    static readonly HashSet<string> GenericBrowserPlaceholders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "download", "downloads", "unknown", "unnamed", "untitled",
+        "file", "files", "content", "uc", "open", "view", "export",
+        "attachment", "blob", "index", "default",
     };
 
     public static string Sanitize(string name)
@@ -261,16 +288,133 @@ public static class FileNames
         return result.Length == 0 ? "download" : result;
     }
 
+    public static string UnescapePercentEncoded(string value, Encoding? encoding = null)
+    {
+        if (string.IsNullOrEmpty(value) || !value.Contains('%', StringComparison.Ordinal))
+            return value;
+
+        var enc = encoding ?? Encoding.UTF8;
+        var sb = new StringBuilder(value.Length);
+        var bytes = new List<byte>(16);
+        int i = 0;
+        while (i < value.Length)
+        {
+            if (value[i] == '%' && i + 2 < value.Length && TryHexVal(value[i + 1], out int hi) && TryHexVal(value[i + 2], out int lo))
+            {
+                bytes.Clear();
+                bytes.Add((byte)((hi << 4) | lo));
+                i += 3;
+                while (i + 2 < value.Length && value[i] == '%' && TryHexVal(value[i + 1], out hi) && TryHexVal(value[i + 2], out lo))
+                {
+                    bytes.Add((byte)((hi << 4) | lo));
+                    i += 3;
+                }
+                sb.Append(enc.GetString(bytes.ToArray()));
+            }
+            else
+            {
+                sb.Append(value[i++]);
+            }
+        }
+        return sb.ToString();
+    }
+
+    static bool TryHexVal(char c, out int val)
+    {
+        if (c is >= '0' and <= '9') { val = c - '0'; return true; }
+        if (c is >= 'A' and <= 'F') { val = c - 'A' + 10; return true; }
+        if (c is >= 'a' and <= 'f') { val = c - 'a' + 10; return true; }
+        val = 0;
+        return false;
+    }
+
+    public static string ExtensionForMime(string? mime)
+    {
+        if (string.IsNullOrWhiteSpace(mime)) return ".txt";
+        var m = mime.Split(';')[0].Trim().ToLowerInvariant();
+        return m switch
+        {
+            "image/png" => ".png",
+            "image/jpeg" or "image/jpg" => ".jpg",
+            "image/gif" => ".gif",
+            "image/webp" => ".webp",
+            "image/svg+xml" => ".svg",
+            "image/x-icon" or "image/vnd.microsoft.icon" => ".ico",
+            "video/mp4" => ".mp4",
+            "video/webm" => ".webm",
+            "video/x-matroska" => ".mkv",
+            "video/mp2t" => ".ts",
+            "audio/mpeg" or "audio/mp3" => ".mp3",
+            "audio/mp4" or "audio/aac" or "audio/x-m4a" => ".m4a",
+            "audio/ogg" => ".ogg",
+            "audio/wav" or "audio/x-wav" => ".wav",
+            "application/pdf" => ".pdf",
+            "application/zip" or "application/x-zip-compressed" => ".zip",
+            "application/json" => ".json",
+            "application/xml" or "text/xml" => ".xml",
+            "text/html" => ".html",
+            "text/csv" => ".csv",
+            "text/plain" => ".txt",
+            "application/octet-stream" => ".bin",
+            _ => ".bin",
+        };
+    }
+
     public static string FromUrl(string url)
     {
+        if (IsDataUrl(url))
+        {
+            var trimmed = url.Trim();
+            int comma = trimmed.IndexOf(',');
+            var header = comma > 5 ? trimmed[5..comma] : "";
+            var mime = header.Split(';')[0].Trim();
+            if (mime.Contains('=')) mime = "";
+            return Sanitize("data" + (string.IsNullOrEmpty(mime) ? ".txt" : ExtensionForMime(mime)));
+        }
         try
         {
             var uri = new Uri(url);
-            var last = Uri.UnescapeDataString(uri.AbsolutePath.TrimEnd('/').Split('/').LastOrDefault() ?? "");
+            var rawSeg = uri.AbsolutePath.TrimEnd('/').Split('/').LastOrDefault() ?? "";
+            var last = UnescapePercentEncoded(rawSeg, Encoding.UTF8);
             if (string.IsNullOrWhiteSpace(last)) last = uri.Host;
             return Sanitize(last);
         }
-        catch { return "download"; }
+        catch (Exception)
+        {
+            /* fallback for malformed URL strings */
+            return "download";
+        }
+    }
+
+    /// <summary>True when a browser-supplied filename is specific enough to lock over server Content-Disposition.</summary>
+    public static bool ShouldLockBrowserFileName(string? rawFileName, string? url = null)
+    {
+        if (string.IsNullOrWhiteSpace(rawFileName)) return false;
+        var leaf = Path.GetFileName(rawFileName.Replace('/', '\\').Trim()).Trim('"', '\'', ' ');
+        if (string.IsNullOrWhiteSpace(leaf)) return false;
+        var ext = Path.GetExtension(leaf);
+        if (ext.Equals(".crdownload", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".part", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".opdownload", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (ext.Length > 1) return true;
+
+        var stem = StripBrowserCopySuffix(leaf);
+        if (stem.Length == 0 || GenericBrowserPlaceholders.Contains(stem)) return false;
+        if (!string.IsNullOrWhiteSpace(url) && string.Equals(stem, FromUrl(url), StringComparison.OrdinalIgnoreCase))
+            return false;
+        return true;
+    }
+
+    static string StripBrowserCopySuffix(string name)
+    {
+        var s = name.Trim();
+        if (!s.EndsWith(')')) return s;
+        int open = s.LastIndexOf('(');
+        if (open <= 0 || open >= s.Length - 2) return s;
+        for (int i = open + 1; i < s.Length - 1; i++)
+            if (!char.IsAsciiDigit(s[i])) return s;
+        return s[..open].TrimEnd();
     }
 
     /// <summary>Returns a path that does not exist yet: "name (1).ext", "name (2).ext"...</summary>
@@ -289,4 +433,130 @@ public static class FileNames
 
     public static bool IsHttpUrl(string? s)
         => Uri.TryCreate(s?.Trim(), UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps);
+
+    public static bool IsFtpUrl(string? s)
+        => Uri.TryCreate(s?.Trim(), UriKind.Absolute, out var u)
+           && (u.Scheme == Uri.UriSchemeFtp || string.Equals(u.Scheme, "ftps", StringComparison.OrdinalIgnoreCase))
+           && !string.IsNullOrWhiteSpace(u.Host);
+
+    public static bool IsDataUrl(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        var t = s.Trim();
+        return t.StartsWith("data:", StringComparison.OrdinalIgnoreCase) && t.IndexOf(',') >= 5;
+    }
+
+    public static bool IsDownloadableUrl(string? s)
+        => IsHttpUrl(s) || IsFtpUrl(s) || IsDataUrl(s);
+
+    /// <summary>True for network download schemes accepted on the command line (http, https, ftp, ftps — never data:).</summary>
+    public static bool IsNetworkDownloadUrl(string? s)
+        => IsHttpUrl(s) || IsFtpUrl(s);
+
+    /// <summary>Safe single-line display form of a URL so multi-megabyte data: URLs never freeze WPF layout or tooltips.</summary>
+    public static string FormatDisplayUrl(string? url, int maxChars = 240)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return "";
+        var s = url.Trim();
+        if (IsDataUrl(s))
+        {
+            int comma = s.IndexOf(',');
+            var header = comma > 0 ? s[..Math.Min(comma, 80)] : "data:";
+            return s.Length <= maxChars ? s : $"{header},… ({Fmt.Size(Math.Max(0, s.Length - comma - 1))})";
+        }
+        return s.Length <= maxChars ? s : s[..maxChars] + "…";
+    }
+
+    /// <summary>True when a clipboard string is a downloadable URL/magnet/host/stream that clipboard monitoring should capture.</summary>
+    public static bool ShouldCaptureClipboardUrl(string? text, AppSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var t = text.Trim();
+        if (t.Contains('\n') || t.Contains('\r')) return false;
+        if (Torrent.MagnetValidator.IsMagnetUri(t)) return true;
+
+        if (!IsHttpUrl(t) && !IsFtpUrl(t)) return false;
+        if (settings.IsException(t)) return false;
+
+        var u = new Uri(t);
+        if (StreamDownloader.IsDirectStreamUrl(t)) return true;
+        if (Resolvers.HostResolvers.All.Any(r => r.CanHandle(u))) return true;
+
+        var ext = Path.GetExtension(u.AbsolutePath).TrimStart('.').ToLowerInvariant();
+        return ext.Length > 0 && settings.ExtensionList.Contains(ext);
+    }
+}
+
+/// <summary>Maps raw .NET / OS / network exceptions into plain-word localized messages telling the user what happened and what to do next.</summary>
+public static class FriendlyError
+{
+    public static string Format(Exception? ex)
+    {
+        if (ex == null) return Loc.T("core.err.generic");
+        if (ex is AggregateException agg && agg.InnerExceptions.Count > 0)
+            ex = agg.Flatten().InnerExceptions[0];
+
+        if (ex is DownloadException dlEx && !string.IsNullOrWhiteSpace(dlEx.Message))
+            return dlEx.Message;
+
+        if (ex is TimeoutException or OperationCanceledException)
+            return Loc.T("core.err.timeout");
+
+        if (FindInner<System.Net.Sockets.SocketException>(ex) is { } sockEx)
+        {
+            if (sockEx.SocketErrorCode == System.Net.Sockets.SocketError.AddressAlreadyInUse)
+                return Loc.T("core.err.port_in_use");
+            if (sockEx.SocketErrorCode == System.Net.Sockets.SocketError.AccessDenied)
+                return Loc.T("core.err.access_denied");
+            return Loc.T("core.err.network");
+        }
+
+        if (ex is System.Net.Http.HttpRequestException || FindInner<System.Net.Http.HttpRequestException>(ex) != null)
+            return Loc.T("core.err.network");
+
+        if (ex is UnauthorizedAccessException or System.Security.SecurityException)
+            return Loc.T("core.err.access_denied");
+
+        if (ex is PathTooLongException or DirectoryNotFoundException or FileNotFoundException or DriveNotFoundException or NotSupportedException or ArgumentException)
+            return Loc.T("core.err.invalid_path");
+
+        if (ex is IOException ioEx)
+        {
+            int win32 = ioEx.HResult & 0xFFFF;
+            if (win32 is 0x70 or 0x27) // ERROR_DISK_FULL, ERROR_HANDLE_DISK_FULL
+                return Loc.T("core.err.disk_full");
+            if (win32 is 0x20 or 0x21) // ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+                return Loc.T("core.err.file_in_use");
+            if (ioEx.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
+                || ioEx.Message.Contains("Failed to bind", StringComparison.OrdinalIgnoreCase))
+                return Loc.T("core.err.port_in_use");
+            return Loc.T("core.err.invalid_path");
+        }
+
+        var typeName = ex.GetType().FullName ?? "";
+        if (typeName.StartsWith("MonoTorrent.", StringComparison.Ordinal))
+            return Loc.T("core.err.bad_torrent");
+
+        if (ex is InvalidOperationException inv && !string.IsNullOrWhiteSpace(inv.Message))
+        {
+            // Keep app-generated localized messages while filtering raw framework English diagnostics.
+            if (Loc.IsRtl ? TextDir.IsRtl(inv.Message) : !LooksLikeFrameworkException(inv.Message))
+                return inv.Message;
+        }
+
+        return Loc.T("core.err.generic");
+    }
+
+    static T? FindInner<T>(Exception? ex) where T : Exception
+    {
+        for (var cur = ex; cur != null; cur = cur.InnerException)
+            if (cur is T match) return match;
+        return null;
+    }
+
+    static bool LooksLikeFrameworkException(string msg)
+        => msg.Contains("System.", StringComparison.Ordinal)
+           || msg.Contains("Object reference", StringComparison.OrdinalIgnoreCase)
+           || msg.Contains("StackTrace", StringComparison.OrdinalIgnoreCase)
+           || msg.Contains("HRESULT", StringComparison.OrdinalIgnoreCase);
 }

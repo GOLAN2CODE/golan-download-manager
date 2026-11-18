@@ -36,6 +36,8 @@ public partial class SpeedRulesWindow : Window
             {
                 if (TimeOnly.TryParse(value?.Trim(), CultureInfo.InvariantCulture, out var t))
                     Set(ref _fromText, t.ToString("HH:mm", CultureInfo.InvariantCulture));
+                else
+                    OnPropertyChanged(nameof(FromText));
             }
         }
 
@@ -46,13 +48,31 @@ public partial class SpeedRulesWindow : Window
             {
                 if (TimeOnly.TryParse(value?.Trim(), CultureInfo.InvariantCulture, out var t))
                     Set(ref _toText, t.ToString("HH:mm", CultureInfo.InvariantCulture));
+                else
+                    OnPropertyChanged(nameof(ToText));
             }
         }
 
         public int LimitKBps
         {
             get => _limitKBps;
-            set => Set(ref _limitKBps, Math.Clamp(value, 0, 1024000));
+            set
+            {
+                if (Set(ref _limitKBps, Math.Clamp(value, 0, 1024000)))
+                    OnPropertyChanged(nameof(LimitText));
+            }
+        }
+
+        public string LimitText
+        {
+            get => _limitKBps.ToString(CultureInfo.InvariantCulture);
+            set
+            {
+                if (int.TryParse(value?.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+                    LimitKBps = parsed;
+                else
+                    OnPropertyChanged(nameof(LimitText));
+            }
         }
 
         public SpeedRule ToModel() => new()
@@ -78,19 +98,21 @@ public partial class SpeedRulesWindow : Window
 
     readonly AppSettings _settings;
     readonly SpeedRuleController? _controller;
+    readonly bool _persistImmediately;
     readonly ObservableCollection<RuleRow> _rows = [];
 
-    public SpeedRulesWindow(AppSettings settings, SpeedRuleController? controller = null)
+    public SpeedRulesWindow(AppSettings settings, SpeedRuleController? controller = null, bool persistImmediately = true)
     {
         InitializeComponent();
         _settings = settings;
         _controller = controller;
+        _persistImmediately = persistImmediately;
 
         DaysColumn.ItemsSource = new List<DaysOption>
         {
-            new(DaysMask.All, Loc.T($"speedrules.win.days.all")),
-            new(DaysMask.Weekdays, Loc.T($"speedrules.win.days.weekdays")),
-            new(DaysMask.Weekend, Loc.T($"speedrules.win.days.weekend")),
+            new(DaysMask.All, Loc.T("speedrules.win.days.all")),
+            new(DaysMask.Weekdays, Loc.T("speedrules.win.days.weekdays")),
+            new(DaysMask.Weekend, Loc.T("speedrules.win.days.weekend")),
             new(DaysMask.Sunday, Loc.Culture.DateTimeFormat.GetDayName(DayOfWeek.Sunday)),
             new(DaysMask.Monday, Loc.Culture.DateTimeFormat.GetDayName(DayOfWeek.Monday)),
             new(DaysMask.Tuesday, Loc.Culture.DateTimeFormat.GetDayName(DayOfWeek.Tuesday)),
@@ -103,6 +125,20 @@ public partial class SpeedRulesWindow : Window
         foreach (var r in _settings.SpeedRules)
             _rows.Add(RuleRow.FromModel(r));
         RulesGrid.ItemsSource = _rows;
+        _rows.CollectionChanged += (_, _) => SyncRuleUiState();
+        SyncRuleUiState();
+    }
+
+    void RulesGrid_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        => SyncRuleUiState();
+
+    void SyncRuleUiState()
+    {
+        EmptyRulesText.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        int idx = RulesGrid.SelectedItem is RuleRow r ? _rows.IndexOf(r) : -1;
+        if (DeleteBtn != null) DeleteBtn.IsEnabled = idx >= 0;
+        if (MoveUpBtn != null) MoveUpBtn.IsEnabled = idx > 0;
+        if (MoveDownBtn != null) MoveDownBtn.IsEnabled = idx >= 0 && idx < _rows.Count - 1;
     }
 
     void Add_Click(object sender, RoutedEventArgs e)
@@ -126,6 +162,7 @@ public partial class SpeedRulesWindow : Window
         {
             _rows.Move(idx, idx - 1);
             RulesGrid.SelectedItem = row;
+            SyncRuleUiState();
         }
     }
 
@@ -137,6 +174,7 @@ public partial class SpeedRulesWindow : Window
         {
             _rows.Move(idx, idx + 1);
             RulesGrid.SelectedItem = row;
+            SyncRuleUiState();
         }
     }
 
@@ -145,10 +183,22 @@ public partial class SpeedRulesWindow : Window
         RulesGrid.CommitEdit();
         RulesGrid.CommitEdit();
         _settings.SpeedRules = _rows.Select(r => r.ToModel()).ToList();
-        _settings.Save();
-        _controller?.OnSettingsChanged();
-        DialogResult = true;
+        if (_persistImmediately)
+        {
+            _settings.Save();
+            _controller?.OnSettingsChanged();
+        }
+        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal)
+            DialogResult = true;
+        else
+            Close();
     }
 
-    void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+    void Cancel_Click(object sender, RoutedEventArgs e)
+    {
+        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal)
+            DialogResult = false;
+        else
+            Close();
+    }
 }

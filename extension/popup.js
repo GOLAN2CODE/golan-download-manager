@@ -10,7 +10,8 @@ const I18N_FALLBACK = {
   statusChecking: "Checking…",
   statusConnected: "Connected",
   statusOffline: "Golan is not running",
-  popupOfflineBanner: "Golan is not running — start the application and try again.",
+  popupOfflineBanner: "Golan is not running — open Golan Download Manager and click Retry.",
+  popupOfflineHelp: "Start Golan from the Start Menu or Desktop. If it is already open, enable Browser Integration in Options.",
   popupInterceptTitle: "Capture downloads from browser",
   popupInterceptDesc: "Send downloaded files to Golan instead of the browser",
   popupDownloadPageVideo: "Download video from this page",
@@ -20,11 +21,19 @@ const I18N_FALLBACK = {
   popupMediaEmpty: "No videos detected yet. Play the video and reopen this menu.",
   popupRestoreVideoBtn: "Restore video download button on this site",
   btnDownload: "Download",
+  btnRetry: "Retry",
   errNotRunningShort: "Golan is not running — please start the application",
   errNoLinksFound: "No links found on this page.",
   errReadLinksFailed: "Failed to read links from this page.",
+  errInvalidUrl: "This link cannot be downloaded with Golan.",
+  errNothingToDownload: "Nothing to download on this page.",
+  errDrmProtected: "This video is DRM-protected and cannot be downloaded.",
+  errDeclinedByGdm: "Golan skipped this download — check activation or exception settings in Golan.",
+  errGenericGdm: "An error occurred in Golan.",
   errGdmReply: "Golan returned an error: $1",
   errTryAgain: "Failed, please try again",
+  panelSending: "Sending to Golan…",
+  toastConnected: "Connected to Golan ✓",
   toastInterceptOn: "Download capture enabled",
   toastInterceptOff: "Download capture disabled",
   toastButtonRestored: "Button restored for this site",
@@ -111,9 +120,45 @@ function callApi(fn, ...args) {
   });
 }
 
+function isTransientWakeError(err) {
+  const msg = String((err && err.message) || err || "");
+  return /message port closed|receiving end does not exist/i.test(msg);
+}
+
 function send(message) {
   if (!api.runtime || typeof api.runtime.sendMessage !== "function") return Promise.resolve(null);
-  return callApi(api.runtime.sendMessage.bind(api.runtime), message);
+  const fn = api.runtime.sendMessage.bind(api.runtime);
+  return new Promise((resolve) => {
+    const attempt = (retried) => {
+      try {
+        let settled = false;
+        const done = (val, err) => {
+          if (settled) return;
+          settled = true;
+          if (err) {
+            if (!retried && isTransientWakeError(err)) {
+              Promise.resolve().then(() => attempt(true));
+              return;
+            }
+            resolve(null);
+          } else {
+            resolve(val);
+          }
+        };
+        if (globalThis.browser && fn.length <= 1) {
+          Promise.resolve(fn(message)).then((v) => done(v, null), (e) => done(null, e));
+          return;
+        }
+        const p = fn(message, (res) => done(res, api.runtime && api.runtime.lastError));
+        if (p && typeof p.then === "function") {
+          p.then((v) => done(v, null), (e) => done(null, e));
+        }
+      } catch (e) {
+        resolve(null);
+      }
+    };
+    attempt(false);
+  });
 }
 
 function isHttpUrl(url) {
@@ -130,20 +175,33 @@ function toast(text, kind) {
   }, 2600);
 }
 
+function sanitizeUiError(err) {
+  const s = typeof err === "string" ? err.trim() : "";
+  if (!s) return "";
+  if (
+    /^(?:internal-error|unknown-message|forbidden-sender)$/.test(s) ||
+    /\b(?:System\.[A-Z]\w*|[A-Z]\w*Exception|StackTrace)\b/.test(s) ||
+    /^\s*at\s+\S+\s*\(/m.test(s)
+  ) {
+    return "";
+  }
+  return s.replace(/\s+/g, " ").slice(0, 200);
+}
+
 function showResult(res, okText) {
-  if (res && res.ok) toast(okText, "ok");
+  if (res && (res.drm || res.error === "drm")) toast(i18nMsg("errDrmProtected"), "err");
+  else if (res && res.ok && res.accepted === false) toast(i18nMsg("errDeclinedByGdm"), "err");
+  else if (res && res.ok) toast(okText, "ok");
   else if (res && res.connected === false) {
     setStatus(false);
     toast(i18nMsg("errNotRunningShort"), "err");
   } else if (res && res.error === "no-links") toast(i18nMsg("errNoLinksFound"), "err");
   else if (res && res.error === "script-failed") toast(i18nMsg("errReadLinksFailed"), "err");
+  else if (res && res.error === "bad-url") toast(i18nMsg("errInvalidUrl"), "err");
+  else if (res && res.error === "bad-page") toast(i18nMsg("errNothingToDownload"), "err");
   else {
-    toast(
-      res && res.error && res.connected
-        ? i18nMsg("errGdmReply", [String(res.error)])
-        : i18nMsg("errTryAgain"),
-      "err"
-    );
+    const cleanErr = res && res.connected ? sanitizeUiError(res.error) : "";
+    toast(cleanErr ? i18nMsg("errGdmReply", [cleanErr]) : i18nMsg("errTryAgain"), "err");
   }
 }
 
@@ -159,7 +217,17 @@ function setStatus(connected) {
 function fileNameFromUrl(url) {
   try {
     const u = new URL(url);
-    let name = u.pathname.split("/").filter(Boolean).pop() || u.hostname;
+    let name = u.pathname.split("/").filter(Boolean).pop() || "";
+    if (!/\.[a-z0-9]{2,5}$/i.test(name)) {
+      for (const [, val] of u.searchParams.entries()) {
+        const clean = val.split(/[\\/]/).pop() || "";
+        if (/\.(?:m3u8|mpd|mp4|m4v|mov|webm|mp3|m4a|ogg|opus|wav|flac|mkv|flv)$/i.test(clean)) {
+          name = clean;
+          break;
+        }
+      }
+    }
+    if (!name) name = u.hostname;
     try {
       name = decodeURIComponent(name);
     } catch (e) {
@@ -216,11 +284,12 @@ function renderMedia(items) {
     const li = document.createElement("li");
     li.className = "media-item";
 
+    const fileLabel = fileNameFromUrl(item.url);
     const info = document.createElement("div");
     info.className = "media-info";
     const name = document.createElement("span");
     name.className = "media-name";
-    name.textContent = fileNameFromUrl(item.url);
+    name.textContent = fileLabel;
     name.title = item.url;
     const meta = document.createElement("div");
     meta.className = "media-meta";
@@ -232,15 +301,24 @@ function renderMedia(items) {
     if (size) meta.appendChild(document.createTextNode(size));
     info.append(name, meta);
 
+    const dlText = i18nMsg("btnDownload");
     const btn = document.createElement("button");
     btn.className = "item-btn";
     btn.type = "button";
-    btn.textContent = i18nMsg("btnDownload");
+    btn.textContent = dlText;
+    btn.title = fileLabel;
+    btn.ariaLabel = dlText + " " + fileLabel;
     btn.addEventListener("click", async () => {
+      if (!currentTab) return;
       btn.disabled = true;
-      const res = await send({ type: "download-item", tabId: currentTab.id, item });
-      showResult(res, i18nMsg("toastSentToGdm"));
-      btn.disabled = false;
+      btn.textContent = i18nMsg("panelSending");
+      try {
+        const res = await send({ type: "download-item", tabId: currentTab.id, item });
+        showResult(res, i18nMsg("toastSentToGdm"));
+      } finally {
+        btn.textContent = dlText;
+        btn.disabled = false;
+      }
     });
 
     li.append(info, btn);
@@ -294,6 +372,23 @@ async function init() {
   if (gdmState && typeof gdmState.connected === "boolean") setStatus(gdmState.connected);
   send({ type: "get-status" }).then((st) => setStatus(!!(st && st.connected)));
 
+  $("retryBtn").addEventListener("click", async () => {
+    const b = $("retryBtn");
+    b.disabled = true;
+    b.textContent = i18nMsg("statusChecking");
+    $("status").dataset.state = "checking";
+    $("statusText").textContent = i18nMsg("statusChecking");
+    try {
+      const st = await send({ type: "get-status" });
+      const ok = !!(st && st.connected);
+      setStatus(ok);
+      toast(ok ? i18nMsg("toastConnected") : i18nMsg("errNotRunningShort"), ok ? "ok" : "err");
+    } finally {
+      b.textContent = i18nMsg("btnRetry");
+      b.disabled = false;
+    }
+  });
+
   // "Show the button again on this site".
   const host = pageOk ? hostOf(currentTab.url) : "";
   if (host && hiddenHosts && hiddenHosts[host]) {
@@ -310,24 +405,37 @@ async function init() {
   }
 
   $("mediaPageBtn").addEventListener("click", async () => {
+    if (!currentTab) return;
     const b = $("mediaPageBtn");
+    const lbl = $("mediaPageBtnLabel");
     b.disabled = true;
-    const res = await send({ type: "media-page", tabId: currentTab.id, title: currentTab.title });
-    showResult(res, i18nMsg("toastVideoSent"));
-    b.disabled = false;
+    lbl.textContent = i18nMsg("panelSending");
+    try {
+      const res = await send({ type: "media-page", tabId: currentTab.id, title: currentTab.title });
+      showResult(res, i18nMsg("toastVideoSent"));
+    } finally {
+      lbl.textContent = i18nMsg("popupDownloadPageVideo");
+      b.disabled = false;
+    }
   });
 
   $("allLinksBtn").addEventListener("click", async () => {
+    if (!currentTab) return;
     const b = $("allLinksBtn");
     b.disabled = true;
-    const res = await send({ type: "download-all", tabId: currentTab.id });
-    showResult(
-      res,
-      res && res.count
-        ? i18nMsg("toastLinksCountSent", [String(res.count)])
-        : i18nMsg("toastLinksSent")
-    );
-    b.disabled = false;
+    b.textContent = i18nMsg("panelSending");
+    try {
+      const res = await send({ type: "download-all", tabId: currentTab.id });
+      showResult(
+        res,
+        res && res.count
+          ? i18nMsg("toastLinksCountSent", [String(res.count)])
+          : i18nMsg("toastLinksSent")
+      );
+    } finally {
+      b.textContent = i18nMsg("popupDownloadAllLinks");
+      b.disabled = false;
+    }
   });
 
   if (currentTab) {

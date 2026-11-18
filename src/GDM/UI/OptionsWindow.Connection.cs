@@ -17,6 +17,7 @@ public partial class OptionsWindow
             IsSnapToTickEnabled = true,
             Value = _working.MaxConnections
         };
+        System.Windows.Automation.AutomationProperties.SetName(slider, Loc.T("win.options.connection.max_conn"));
         var value = new TextBlock
         {
             Text = _working.MaxConnections.ToString(),
@@ -36,6 +37,11 @@ public partial class OptionsWindow
             DisplayMemberPath = "Pattern"
         };
         limits.ItemsSource = _working.ServerLimits;
+        limits.MouseDoubleClick += (_, _) =>
+        {
+            if (limits.SelectedItem is ServerLimit x && EditServer(x))
+                limits.Items.Refresh();
+        };
         var b = EditorButtons(
             () =>
             {
@@ -61,6 +67,16 @@ public partial class OptionsWindow
                 }
                 limits.Items.Refresh();
             });
+        var editLimitBtn = b.Children.OfType<Button>().ElementAtOrDefault(1);
+        var delLimitBtn = b.Children.OfType<Button>().ElementAtOrDefault(2);
+        void SyncLimitButtons()
+        {
+            bool hasSel = limits.SelectedItem is ServerLimit;
+            if (editLimitBtn != null) editLimitBtn.IsEnabled = hasSel;
+            if (delLimitBtn != null) delLimitBtn.IsEnabled = hasSel;
+        }
+        limits.SelectionChanged += (_, _) => SyncLimitButtons();
+        SyncLimitButtons();
         p.Children.Add(Card(Label(Loc.T("win.options.connection.server_limits")), limits, b));
         var scheduleRulesBtn = new Button
         {
@@ -70,7 +86,7 @@ public partial class OptionsWindow
         };
         scheduleRulesBtn.Click += (_, _) =>
         {
-            new SpeedRulesWindow(_working, App.Instance?.SpeedRuleController) { Owner = this }.ShowDialog();
+            new SpeedRulesWindow(_working, App.Instance?.SpeedRuleController, persistImmediately: false) { Owner = this }.ShowDialog();
         };
         p.Children.Add(Card(
             Check(Loc.T("win.options.connection.quota_enable"), () => _working.QuotaEnabled, v => _working.QuotaEnabled = v),
@@ -90,16 +106,21 @@ public partial class OptionsWindow
     bool EditServer(ServerLimit x)
     {
         var pattern = InputDialog.Ask(this, Loc.T("win.options.connection.server_dialog_title"), Loc.T("win.options.connection.server_pattern_prompt"), x.Pattern);
-        if (pattern == null)
+        if (string.IsNullOrWhiteSpace(pattern))
         {
             return false;
         }
         var max = InputDialog.Ask(this, Loc.T("win.options.connection.server_max_title"), Loc.T("win.options.connection.server_max_prompt"), x.MaxConnections.ToString());
-        if (!int.TryParse(max, out var n) || n is < 1 or > 32)
+        if (max == null)
         {
             return false;
         }
-        x.Pattern = pattern;
+        if (!int.TryParse(max.Trim(), out var n) || n is < 1 or > 32)
+        {
+            Confirm.Info(this, Loc.T("win.options.connection.server_max_title"), Loc.T("win.options.connection.server_max_invalid"));
+            return false;
+        }
+        x.Pattern = pattern.Trim();
         x.MaxConnections = n;
         return true;
     }

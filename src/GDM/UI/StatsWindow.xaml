@@ -61,25 +61,30 @@
             <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,12" Padding="14,10">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="{v4:T stats.win.section.daily}" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                        <ItemsControl x:Name="DailyBarsControl">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom"/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Width="44" Margin="3,0" VerticalAlignment="Bottom" ToolTip="{Binding Tooltip}">
-                                        <Border Height="{Binding BarHeight}" Width="22" CornerRadius="4,4,0,0"
-                                                Background="{DynamicResource Accent}" HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{Binding Label}" FontSize="10" Foreground="{DynamicResource Muted}"
-                                                   HorizontalAlignment="Center" Margin="0,4,0,0" FlowDirection="LeftToRight"/>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
+                    <Grid>
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" FlowDirection="LeftToRight">
+                            <ItemsControl x:Name="DailyBarsControl">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Width="44" Margin="3,0" VerticalAlignment="Bottom" ToolTip="{Binding Tooltip}">
+                                            <Border Height="{Binding BarHeight}" Width="22" CornerRadius="4,4,0,0"
+                                                    Background="{DynamicResource Accent}" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Label}" FontSize="10" Foreground="{DynamicResource Muted}"
+                                                       HorizontalAlignment="Center" Margin="0,4,0,0" FlowDirection="LeftToRight"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <TextBlock x:Name="DailyEmptyText" Text="{v4:T stats.win.empty}"
+                                   Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   TextWrapping="Wrap" IsHitTestVisible="False" Visibility="Collapsed"/>
+                    </Grid>
                 </DockPanel>
             </Border>
 
@@ -94,24 +99,46 @@
                 <Border Grid.Column="0" Style="{StaticResource Card}" Padding="14,10">
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="{v4:T stats.win.section.categories}" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                        <DataGrid x:Name="CategoriesGrid">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="{v4:T stats.win.col.name}" Binding="{Binding Name}" Width="*"/>
-                                <DataGridTextColumn Header="{v4:T stats.win.col.size}" Binding="{Binding SizeText}" Width="130"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
+                        <Grid>
+                            <DataGrid x:Name="CategoriesGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                      CanUserAddRows="False" CanUserDeleteRows="False"
+                                      AutomationProperties.Name="{v4:T stats.win.section.categories}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="{v4:T stats.win.col.name}" Binding="{Binding Name}" Width="*"/>
+                                    <DataGridTextColumn Header="{v4:T stats.win.col.size}" Binding="{Binding SizeText}" SortMemberPath="Bytes" Width="130"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <TextBlock x:Name="CategoriesEmptyText" Text="{v4:T stats.win.empty}"
+                                       Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       TextWrapping="Wrap" IsHitTestVisible="False" Visibility="Collapsed"/>
+                        </Grid>
                     </DockPanel>
                 </Border>
 
                 <Border Grid.Column="2" Style="{StaticResource Card}" Padding="14,10">
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="{v4:T stats.win.section.hosts}" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                        <DataGrid x:Name="HostsGrid">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="{v4:T stats.win.col.name}" Binding="{Binding Name}" Width="*"/>
-                                <DataGridTextColumn Header="{v4:T stats.win.col.size}" Binding="{Binding SizeText}" Width="130"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
+                        <Grid>
+                            <DataGrid x:Name="HostsGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                      CanUserAddRows="False" CanUserDeleteRows="False"
+                                      AutomationProperties.Name="{v4:T stats.win.section.hosts}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="{v4:T stats.win.col.name}" Binding="{Binding Name}" Width="*">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="FlowDirection" Value="LeftToRight"/>
+                                                <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                            </Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="{v4:T stats.win.col.size}" Binding="{Binding SizeText}" SortMemberPath="Bytes" Width="130"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <TextBlock x:Name="HostsEmptyText" Text="{v4:T stats.win.empty}"
+                                       Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       TextWrapping="Wrap" IsHitTestVisible="False" Visibility="Collapsed"/>
+                        </Grid>
                     </DockPanel>
                 </Border>
             </Grid>

@@ -143,7 +143,7 @@ public static partial class CliParser
             return false;
 
         var scheme = uri.Scheme.ToLowerInvariant();
-        if (scheme is not ("http" or "https" or "ftp"))
+        if (scheme is not ("http" or "https" or "ftp" or "ftps"))
             return false;
 
         return !string.IsNullOrWhiteSpace(uri.Host);

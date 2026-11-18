@@ -24,9 +24,9 @@
                             <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
                                 <TextBlock x:Name="NameText" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                                 <TextBlock x:Name="UrlText" FontSize="11.5" Foreground="{DynamicResource Muted}"
-                                           TextWrapping="Wrap" FlowDirection="LeftToRight"/>
+                                           TextWrapping="Wrap" HorizontalAlignment="Left" FlowDirection="LeftToRight"/>
                                 <TextBlock x:Name="SaveToText" FontSize="11.5" Foreground="{DynamicResource Muted}"
-                                           TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
                             </StackPanel>
                         </DockPanel>
                         <Border Style="{StaticResource Card}" Margin="0,16,0,0">
@@ -35,7 +35,7 @@
                                     <TextBlock x:Name="PercentText" DockPanel.Dock="Left" FontSize="28" FontWeight="Bold"
                                                Foreground="{DynamicResource AccentText}" FlowDirection="LeftToRight"/>
                                     <TextBlock x:Name="StatusText" VerticalAlignment="Bottom" HorizontalAlignment="Right"
-                                               Margin="0,0,0,6" Foreground="{DynamicResource Muted}"/>
+                                               Margin="0,0,0,6" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
                                 </DockPanel>
                                 <ProgressBar x:Name="Bar" Maximum="100" Height="10" Margin="0,8,0,0"/>
                                 <UniformGrid Columns="4" Margin="0,16,0,0">
@@ -110,6 +110,8 @@
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
                                                     <Setter Property="VerticalAlignment" Value="Center"/>
+                                                    <Setter Property="HorizontalAlignment" Value="Left"/>
+                                                    <Setter Property="FlowDirection" Value="{Binding Path, Converter={StaticResource TextDir}}"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                         </DataGridTextColumn>
@@ -154,6 +156,8 @@
         <StackPanel Grid.Row="1">
             <DockPanel Margin="0,16,0,0" LastChildFill="False">
                 <Button x:Name="PauseBtn" DockPanel.Dock="Left" Style="{StaticResource Primary}" MinWidth="110" Click="Pause_Click"/>
+                <Button x:Name="RefreshUrlBtn" DockPanel.Dock="Left" Content="{core:T refresh.title}" Margin="8,0,0,0"
+                        Click="RefreshUrl_Click" Visibility="Collapsed"/>
                 <Button x:Name="OpenBtn" DockPanel.Dock="Left" Content="{core:T main.progress.openFile}" Margin="8,0,0,0"
                         Click="Open_Click" Visibility="Collapsed"/>
                 <Button x:Name="FolderBtn" DockPanel.Dock="Left" Content="{core:T main.progress.openFolder}" Margin="8,0,0,0" Click="Folder_Click"/>

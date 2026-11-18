@@ -138,6 +138,18 @@ public static class WindowHarnesses
                 new BrowserGuideWindow("chrome.exe"),
                 "BrowserGuide", lang, theme, outDir));
 
+            // 21b2. Automatic extension install: idle window, per-browser results, and the first-run offer
+            results.Add(WindowRenderer.RenderWindow(
+                new ExtensionAutoInstallWindow(),
+                "AutoInstall", lang, theme, outDir));
+            results.Add(WindowRenderer.RenderWindow(
+                new ExtensionAutoInstallWindow(),
+                "AutoInstall_results", lang, theme, outDir,
+                afterLoaded: w => ((ExtensionAutoInstallWindow)w).Panel.ShowResults(SampleAutoInstallResults())));
+            results.Add(WindowRenderer.RenderWindow(
+                ExtensionAutoInstallWindow.CreateFirstRunOfferWindow(null, SampleBrowsers(), _ => { }),
+                "AutoInstallOffer", lang, theme, outDir));
+
             // 21c. Refresh download address (waiting for the user's click on the site)
             if (string.IsNullOrEmpty(env.ErrorItem.ParentPage)) env.ErrorItem.ParentPage = "https://files.example.com/downloads/page";
             Golan.Gdm.App.Instance.AddressRefresh.Begin(env.ErrorItem.Id, DateTime.UtcNow);
@@ -179,6 +191,42 @@ public static class WindowHarnesses
         }
 
         return results;
+    }
+
+    static List<Golan.Gdm.Integration.BrowserIntegration.BrowserInfo> SampleBrowsers() =>
+    [
+        new("Google Chrome", @"Software\Google\Chrome", @"C:\Program Files\Google\Chrome\Application\chrome.exe", "chrome://extensions"),
+        new("Microsoft Edge", @"Software\Microsoft\Edge", @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", "edge://extensions"),
+        new("Mozilla Firefox", @"Software\Mozilla", @"C:\Program Files\Mozilla Firefox\firefox.exe", "about:addons"),
+    ];
+
+    /// <summary>One row per status the results list can show: installed, already installed, temporary, needs action.</summary>
+    static List<Golan.Gdm.Integration.AutoInstallResult> SampleAutoInstallResults()
+    {
+        var b = SampleBrowsers();
+        var brave = new Golan.Gdm.Integration.BrowserIntegration.BrowserInfo("Brave", @"Software\BraveSoftware\Brave-Browser", @"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe", "brave://extensions");
+        string ext = @"C:\Users\User\AppData\Local\Golan\extension";
+        Golan.Gdm.Integration.AutoInstallResult Make(Golan.Gdm.Integration.BrowserIntegration.BrowserInfo browser,
+            Golan.Gdm.Integration.AutoInstallStatus status, Golan.Gdm.Integration.AutoInstallFailureReason reason,
+            string message, IReadOnlyList<string> steps) =>
+            new(browser, null, status, reason, "", message, ext, browser.ExtensionsPage, true, false, false, false, steps);
+
+        return
+        [
+            Make(b[0], Golan.Gdm.Integration.AutoInstallStatus.Installed, Golan.Gdm.Integration.AutoInstallFailureReason.None,
+                Loc.T("autoinstall.result.installed", b[0].Name), []),
+            Make(b[1], Golan.Gdm.Integration.AutoInstallStatus.AlreadyInstalled, Golan.Gdm.Integration.AutoInstallFailureReason.None,
+                Loc.T("autoinstall.result.already_installed", b[1].Name, "2.5.1"), []),
+            Make(b[2], Golan.Gdm.Integration.AutoInstallStatus.InstalledTemporary, Golan.Gdm.Integration.AutoInstallFailureReason.None,
+                Loc.T("autoinstall.result.firefox_temp_warning"), []),
+            Make(brave, Golan.Gdm.Integration.AutoInstallStatus.ManualFallback, Golan.Gdm.Integration.AutoInstallFailureReason.WindowTimeout,
+                Loc.T("autoinstall.err.window_timeout"),
+                [
+                    Loc.T("autoinstall.manual.step1_open", brave.ExtensionsPage),
+                    Loc.T("autoinstall.manual.step2_dev"),
+                    Loc.T("autoinstall.manual.step3_load", ext),
+                ]),
+        ];
     }
 
     static RenderedOutput RenderMain(SeededEnvironment env, string key, string lang, string theme, string outDir, Size size)

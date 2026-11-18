@@ -13,14 +13,16 @@
       <h1 data-i18n="appShortName">Golan</h1>
       <span class="sub" data-i18n="appSubtitle">Download Manager</span>
     </div>
-    <div class="status" id="status" data-state="checking">
-      <span class="dot"></span>
+    <div class="status" id="status" data-state="checking" role="status" aria-live="polite">
+      <span class="dot" aria-hidden="true"></span>
       <span class="status-text" id="statusText" data-i18n="statusChecking">Checking…</span>
     </div>
   </header>
 
-  <div class="banner" id="banner" data-i18n="popupOfflineBanner" hidden>
-    Golan is not running — start the application and try again.
+  <div class="banner" id="banner" role="alert" hidden>
+    <strong class="banner-title" data-i18n="popupOfflineBanner">Golan is not running — open Golan Download Manager and click Retry.</strong>
+    <p class="banner-help" data-i18n="popupOfflineHelp">Start Golan from the Start Menu or Desktop. If it is already open, enable Browser Integration in Options.</p>
+    <button class="banner-btn" id="retryBtn" type="button" data-i18n="btnRetry">Retry</button>
   </div>
 
   <section class="card">
@@ -30,7 +32,7 @@
         <small data-i18n="popupInterceptDesc">Send downloaded files to Golan instead of the browser</small>
       </span>
       <span class="switch">
-        <input type="checkbox" id="interceptToggle" checked>
+        <input type="checkbox" id="interceptToggle" role="switch" checked>
         <span class="slider"></span>
       </span>
     </label>
@@ -38,8 +40,8 @@
 
   <section class="actions">
     <button class="btn primary" id="mediaPageBtn" type="button">
-      <span class="btn-icon">⬇</span>
-      <span data-i18n="popupDownloadPageVideo">Download video from this page</span>
+      <span class="btn-icon" aria-hidden="true">⬇</span>
+      <span id="mediaPageBtnLabel" data-i18n="popupDownloadPageVideo">Download video from this page</span>
     </button>
     <p class="hint" data-i18n="popupVideoHint">Works with YouTube and over a thousand sites</p>
     <button class="btn secondary" id="allLinksBtn" type="button" data-i18n="popupDownloadAllLinks">Download all links</button>

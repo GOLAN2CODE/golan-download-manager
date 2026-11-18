@@ -13,7 +13,7 @@ namespace Golan.Gdm;
 public partial class App : Application
 {
     public static App Instance => (App)Current;
-    public const string Version = "2.5.1";
+    public const string Version = "2.6.0";
 
     public bool StartHidden { get; init; }
     public string? StartUrl { get; init; }
@@ -35,6 +35,25 @@ public partial class App : Application
     SchedulerWindow? _schedulerWindow;
     GrabberWindow? _grabberWindow;
     DropTargetWindow? _dropTarget;
+    Action<string, double>? _toolsProgressHandler;
+    bool _exiting;
+
+    public bool IsExiting => _exiting;
+
+    Window? VisibleOwner(Window? owner = null)
+        => owner is { IsVisible: true } ? owner : (MainView is { IsVisible: true } ? MainView : null);
+
+    void AttachOwner(Window dialog, Window? owner = null)
+    {
+        if (VisibleOwner(owner) is { } o) dialog.Owner = o;
+        else dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+    }
+
+    void RunOnUi(Action action)
+    {
+        if (Dispatcher.CheckAccess()) action();
+        else Dispatcher.BeginInvoke(action);
+    }
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -72,22 +91,22 @@ public partial class App : Application
                 return w.ShowDialog() == true;
             }).Task;
 
-        Manager.ItemStarted += OnItemStarted;
-        Manager.ItemCompleted += OnItemCompleted;
-        Manager.ItemFailed += OnItemFailed;
-        Manager.QueueStarted += q => { AfterDownload.PlaySound(Settings, "queueStart"); RefreshTrayMenu(); };
-        Manager.QueueFinished += OnQueueFinished;
+        Manager.ItemStarted += item => RunOnUi(() => OnItemStarted(item));
+        Manager.ItemCompleted += item => RunOnUi(() => OnItemCompleted(item));
+        Manager.ItemFailed += item => RunOnUi(() => OnItemFailed(item));
+        Manager.QueueStarted += q => RunOnUi(() => { AfterDownload.PlaySound(Settings, "queueStart"); RefreshTrayMenu(); });
+        Manager.QueueFinished += q => RunOnUi(() => OnQueueFinished(q));
         Manager.Ticked += () =>
         {
             PowerGuard.KeepSystemAwake = Settings.KeepSystemAwake;
             PowerGuard.KeepDisplayOn = Settings.KeepDisplayOn;
             PowerGuard.Update(Manager.ActiveCount > 0 || Manager.QueueRunning);
         };
-        Manager.QuotaChanged += blocked =>
+        Manager.QuotaChanged += blocked => RunOnUi(() =>
         {
             if (blocked && Settings.QuotaWarn) Notify(Loc.T("main.notify.quotaReachedTitle"), Loc.T("main.notify.quotaReachedBody", Settings.QuotaMB, Settings.QuotaHours));
             else if (!blocked) Notify(Loc.T("main.notify.quotaResumedTitle"), Loc.T("main.notify.quotaResumedBody"));
-        };
+        });
 
         Manager.LicenseBlocked += () => Dispatcher.BeginInvoke(() => ShowActivation(fromBlockedDownload: true));
 
@@ -111,8 +130,10 @@ public partial class App : Application
 
         CreateTray();
         MainView = new MainWindow();
+        UiaBrowserDriver.BeforeClipboardCopy = () => MainView?.SuppressClipboard();
         // Video tools are prepared quietly in the background so the first video needs no waiting; the status bar shows it.
-        MediaTools.ProgressChanged += (text, percent) => Dispatcher.BeginInvoke(() => MainView?.ShowToolsStatus(text, percent));
+        _toolsProgressHandler = (text, percent) => Dispatcher.BeginInvoke(() => MainView?.ShowToolsStatus(text, percent));
+        MediaTools.ProgressChanged += _toolsProgressHandler;
         MediaTools.StartPrefetch(TimeSpan.FromSeconds(20));
         if (!StartHidden) MainView.Show();
         else MainView.EnsureHandle();
@@ -141,14 +162,53 @@ public partial class App : Application
         if (!Core.Licensing.LicenseGate.CanDownload && !StartHidden)
             Dispatcher.BeginInvoke(() => ShowActivation(), DispatcherPriority.ApplicationIdle);
 
-        if (Settings.FirstRun)
+        // The first-run flow awaits, so a separately queued "install to your profile?" question would open in the
+        // middle of it and the two dialogs would stack. On a first run that question waits for the flow to end;
+        // when started hidden, FirstRun stays true so Welcome and the extension offer show on the first visible launch.
+        var startupPlan = ExtensionOfferPolicy.DecideStartupFlow(Settings.FirstRun, StartHidden);
+        if (startupPlan.ShowWelcome)
         {
-            Settings.FirstRun = false;
-            Settings.Save();
-            if (!StartHidden) Dispatcher.BeginInvoke(() => new WelcomeWindow { Owner = MainView }.ShowDialog(), DispatcherPriority.ApplicationIdle);
+            Dispatcher.BeginInvoke(async () =>
+            {
+                await ExtensionOfferPolicy.ExecuteStartupFlowAsync(
+                    Settings,
+                    StartHidden,
+                    showWelcome: () =>
+                    {
+                        var welcome = new WelcomeWindow();
+                        if (MainView is { IsVisible: true }) welcome.Owner = MainView;
+                        welcome.ShowDialog();
+                    },
+                    checkExtensionOfferAsync: async offerSettings =>
+                    {
+                        // Reading browser profiles touches several files: do it off the UI thread.
+                        try
+                        {
+                            return await Task.Run(() =>
+                            {
+                                var found = ExtensionAutoInstaller.InstalledSupportedBrowsers();
+                                return ((IReadOnlyList<BrowserIntegration.BrowserInfo>)found, ExtensionOfferPolicy.ShouldOffer(offerSettings, found));
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Write("first-run extension check failed: " + ex.Message);
+                            return ([], false);
+                        }
+                    },
+                    showExtensionOffer: browsers =>
+                    {
+                        if (ExtensionAutoInstallWindow.AskFirstRunOffer(MainView, Settings, browsers))
+                            ExtensionAutoInstallWindow.ShowAndStart(MainView);
+                    },
+                    offerAppInstall: OfferInstallOnceIfNeeded,
+                    isExiting: () => _exiting);
+            }, DispatcherPriority.ApplicationIdle);
         }
-
-        OfferInstallOnceIfNeeded();
+        else if (startupPlan.OfferAppInstall)
+        {
+            Dispatcher.BeginInvoke(OfferInstallOnceIfNeeded, DispatcherPriority.ApplicationIdle);
+        }
     }
 
     // ---------- messages from the browser extension / other instances ----------
@@ -207,7 +267,7 @@ public partial class App : Application
             {
                 var links = (msg["links"] as JsonArray)?.OfType<JsonObject>()
                     .Select(l => new BatchLink(Str(l, "url"), Str(l, "text"), Str(l, "cookies")))
-                    .Where(l => FileNames.IsHttpUrl(l.Url)).ToList() ?? [];
+                    .Where(l => FileNames.IsDownloadableUrl(l.Url)).ToList() ?? [];
                 if (links.Count == 0) return Fail(Loc.T("main.ipc.noLinks"));
                 ShowBatch(links, Str(msg, "referrer"), Str(msg, "userAgent"));
                 return Ok();
@@ -215,11 +275,13 @@ public partial class App : Application
             case "media":
             {
                 var page = Str(msg, "pageUrl");
+                var referrer = Str(msg, "referrer") is { Length: > 0 } r ? r : page;
+                bool drm = msg["drm"] is JsonValue dv && dv.TryGetValue<bool>(out var d) && d;
                 var media = (msg["mediaUrls"] as JsonArray)?.OfType<JsonObject>()
                     .Select(m => new DetectedMedia(Str(m, "url"), Str(m, "mime"), Long(m, "size")))
                     .Where(m => FileNames.IsHttpUrl(m.Url)).ToList() ?? [];
                 if (!FileNames.IsHttpUrl(page) && media.Count == 0) return Fail(Loc.T("main.ipc.noVideo"));
-                ShowVideo(FileNames.IsHttpUrl(page) ? page : media[0].Url, page, Str(msg, "userAgent"), msg["cookies"] as JsonArray, media, Str(msg, "title"));
+                ShowVideo(FileNames.IsHttpUrl(page) ? page : media[0].Url, referrer, Str(msg, "userAgent"), msg["cookies"] as JsonArray, media, Str(msg, "title"), drm);
                 return Ok();
             }
             default:
@@ -248,7 +310,7 @@ public partial class App : Application
             ShowAddUrl(url);
             return Ok(accepted: true);
         }
-        if (!FileNames.IsHttpUrl(url)) return Fail(Loc.T("main.ipc.invalidUrl"));
+        if (!FileNames.IsDownloadableUrl(url)) return Fail(Loc.T("main.ipc.invalidUrl"));
         // Not activated: leave the download to the browser instead of swallowing it.
         if (!Core.Licensing.LicenseGate.CanDownload) return Ok(accepted: false);
         // "Refresh download address": the click the user was asked for lands on the waiting item.
@@ -260,9 +322,10 @@ public partial class App : Application
                        (FileNames.IsHttpUrl(finalUrl) && Settings.IsException(finalUrl))))
             return Ok(accepted: false);
 
-        var item = Manager.CreateHttp(url, Str(msg, "referrer"), Str(msg, "cookies"), Str(msg, "userAgent"), Str(msg, "filename"));
+        var browserFileName = Str(msg, "filename");
+        var item = Manager.CreateHttp(url, Str(msg, "referrer"), Str(msg, "cookies"), Str(msg, "userAgent"), browserFileName);
         item.ParentPage = Str(msg, "pageUrl") is { Length: > 0 } pg ? pg : item.Referrer;
-        if (Str(msg, "filename").Length > 0) item.NameLocked = true;
+        if (FileNames.ShouldLockBrowserFileName(browserFileName, url)) item.NameLocked = true;
         var size = Long(msg, "fileSize");
         if (size > 0) item.TotalSize = size;
 
@@ -387,7 +450,7 @@ public partial class App : Application
 
     void OnBrowserDownloadDeclined(string url)
     {
-        if (!Settings.TwiceCancelPrompt || !Uri.TryCreate(url, UriKind.Absolute, out var u)) return;
+        if (!Settings.TwiceCancelPrompt || !Uri.TryCreate(url, UriKind.Absolute, out var u) || string.IsNullOrEmpty(u.Host)) return;
         var n = _declinesByHost[u.Host] = _declinesByHost.GetValueOrDefault(u.Host) + 1;
         if (n < 2) return;
         _declinesByHost[u.Host] = 0;
@@ -395,8 +458,11 @@ public partial class App : Application
                 Loc.T("main.declined.body", u.Host),
                 Loc.T("main.declined.yes")))
         {
-            Settings.ExceptionSites = (Settings.ExceptionSites + " " + u.Host).Trim();
-            Settings.Save();
+            if (!Wildcard.SplitList(Settings.ExceptionSites).Contains(u.Host, StringComparer.OrdinalIgnoreCase))
+            {
+                Settings.ExceptionSites = (Settings.ExceptionSites + " " + u.Host).Trim();
+                Settings.Save();
+            }
         }
     }
 
@@ -494,9 +560,10 @@ public partial class App : Application
             BringToFront(new AddDownloadWindow(null));
             return;
         }
+        url = url.Trim();
         if (MagnetValidator.IsMagnetUri(url))
         {
-            BringToFront(new AddDownloadWindow(null, initialUrl: url.Trim()));
+            BringToFront(new AddDownloadWindow(null, initialUrl: url));
             return;
         }
         if (MediaDownloader.LooksLikeMediaPage(url)) { ShowVideo(url, "", "", null, []); return; }
@@ -511,7 +578,7 @@ public partial class App : Application
         try
         {
             if (!Program.IsTorrentFileArg(torrentPath))
-                throw new ArgumentException("Invalid .torrent file path.");
+                throw new InvalidOperationException(Core.Torrent.TorrentText.T("torrent.error.invalidTorrentFile", Path.GetFileName(torrentPath)));
             var fullPath = Path.GetFullPath(torrentPath);
             var dir = Path.GetDirectoryName(fullPath) ?? "";
             if (!AddDownloadWindow.IsAllowedFolder(dir, Settings))
@@ -522,7 +589,7 @@ public partial class App : Application
 
             var torrent = await MonoTorrent.Torrent.LoadAsync(fullPath);
             var dlg = TorrentFilesWindow.FromTorrent(torrent);
-            dlg.Owner = owner ?? (MainView is { IsVisible: true } ? MainView : null);
+            dlg.Owner = owner is { IsVisible: true } ? owner : (MainView is { IsVisible: true } ? MainView : null);
             if (dlg.ShowDialog() == true)
             {
                 await Manager.AddTorrentFileAsync(
@@ -534,17 +601,20 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Confirm.Info(owner ?? MainView, Loc.T($"vb.add_torrent_or_magnet.title"), ex.Message);
+            Confirm.Info(owner ?? MainView, Loc.T($"vb.add_torrent_or_magnet.title"), FriendlyError.Format(ex));
         }
     }
 
     public async Task CheckForUpdatesAsync(bool interactive, Window? owner = null)
     {
-        var feed = await Updater.CheckForUpdateAsync(Settings, force: interactive);
+        var (feed, checkError) = await Updater.CheckForUpdateDetailedAsync(Settings, force: interactive);
         if (feed == null)
         {
             if (interactive)
-                Confirm.Info(owner ?? MainView, Loc.T($"main.menu.checkUpdates"), Loc.T($"vb.update.up_to_date", Version));
+            {
+                var body = !string.IsNullOrWhiteSpace(checkError) ? checkError : Loc.T($"vb.update.up_to_date", Version);
+                Confirm.Info(owner ?? MainView, Loc.T($"main.menu.checkUpdates"), body);
+            }
             return;
         }
 
@@ -581,6 +651,7 @@ public partial class App : Application
     {
         try
         {
+            if (StartHidden || _exiting) return;
             if (AppPaths.IsPortable) return;
             if (AppPaths.IsIsolated) return;
 
@@ -599,7 +670,7 @@ public partial class App : Application
             File.WriteAllText(marker, DateTime.UtcNow.ToString("O"));
 
             if (Confirm.Ask(MainView, Loc.T($"install.offer_title"), Loc.T($"install.offer_body"), Loc.T($"common.yes")))
-                RunUserInstall(MainView);
+                _ = RunUserInstallAsync(MainView);
         }
         catch (Exception ex)
         {
@@ -607,7 +678,9 @@ public partial class App : Application
         }
     }
 
-    public void RunUserInstall(Window? owner = null)
+    public void RunUserInstall(Window? owner = null) => _ = RunUserInstallAsync(owner);
+
+    public async Task RunUserInstallAsync(Window? owner = null)
     {
         if (AppPaths.IsPortable)
         {
@@ -618,7 +691,8 @@ public partial class App : Application
         try
         {
             var host = new WindowsInstallHost();
-            var res = Installer.Install(host, createDesktopShortcut: true, startWithWindows: Settings.StartWithWindows);
+            var startWithWin = Settings.StartWithWindows;
+            var res = await Task.Run(() => Installer.Install(host, createDesktopShortcut: true, startWithWindows: startWithWin));
             if (res == InstallResult.Installed)
             {
                 var targetExe = Installer.GetTargetExePath(host.LocalAppDataDir);
@@ -627,21 +701,27 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Confirm.Info(owner ?? MainView, Loc.T($"install.offer_title"), ex.Message);
+            Confirm.Info(owner ?? MainView, Loc.T($"install.offer_title"), FriendlyError.Format(ex));
         }
     }
 
-    public void ShowVideo(string url, string referrer, string userAgent, JsonArray? cookies, IReadOnlyList<DetectedMedia> media, string title = "")
-        => BringToFront(new VideoWindow(Manager, url, referrer, userAgent, cookies, media, title));
+    public void ShowVideo(string url, string referrer, string userAgent, JsonArray? cookies, IReadOnlyList<DetectedMedia> media, string title = "", bool drmDetected = false)
+        => BringToFront(new VideoWindow(Manager, url, referrer, userAgent, cookies, media, title, drmDetected));
 
     public void ShowBatch(IReadOnlyList<BatchLink> links, string referrer, string userAgent)
         => BringToFront(new BatchWindow(Manager, links, referrer, userAgent));
 
-    public void ShowBatchPattern() => new BatchPatternWindow(Manager) { Owner = MainView }.ShowDialog();
+    public void ShowBatchPattern()
+    {
+        var w = new BatchPatternWindow(Manager);
+        AttachOwner(w);
+        w.ShowDialog();
+    }
 
     public void ShowOptions(Window? owner = null, string? tab = null)
     {
-        var w = new OptionsWindow(Manager, tab) { Owner = owner ?? MainView };
+        var w = new OptionsWindow(Manager, tab);
+        AttachOwner(w, owner);
         w.ShowDialog();
         RefreshTrayMenu();
         MainView?.RefreshToolbarState();
@@ -665,7 +745,9 @@ public partial class App : Application
 
     public void ShowSpeedLimiterSettings()
     {
-        if (new SpeedLimiterWindow(Settings) { Owner = MainView }.ShowDialog() == true)
+        var w = new SpeedLimiterWindow(Settings);
+        AttachOwner(w);
+        if (w.ShowDialog() == true)
         {
             Settings.Save();
             SpeedRuleController?.SetManualOverride(Settings.SpeedLimitEnabled, Settings.SpeedLimitKB);
@@ -679,18 +761,28 @@ public partial class App : Application
     public (Guid Queue, bool Start)? PickQueue(Window? owner, int count)
     {
         if (!Settings.ShowQueuePanelOnLater) return (QueueDef.MainId, false);
-        var w = new QueuePickerWindow(Manager, count) { Owner = owner is { IsVisible: true } ? owner : MainView };
+        var w = new QueuePickerWindow(Manager, count);
+        AttachOwner(w, owner);
         return w.ShowDialog() == true ? (w.SelectedQueueId, w.StartNow) : null;
     }
 
     public void ShowProperties(DownloadItem item, Window? owner = null)
-        => new PropertiesWindow(item, Manager) { Owner = owner ?? MainView }.ShowDialog();
+    {
+        var w = new PropertiesWindow(item, Manager);
+        AttachOwner(w, owner);
+        w.ShowDialog();
+    }
 
     public void ShowZipPreview(DownloadItem item) => BringToFront(new ZipPreviewWindow(item));
 
     public void ShowProgress(DownloadItem item)
     {
-        if (_progressWindows.TryGetValue(item.Id, out var existing)) { BringToFront(existing); return; }
+        if (_progressWindows.TryGetValue(item.Id, out var existing))
+        {
+            existing.EnsureActive();
+            BringToFront(existing);
+            return;
+        }
         var w = new ProgressWindow(item);
         _progressWindows[item.Id] = w;
         w.Closed += (_, _) => _progressWindows.Remove(item.Id);
@@ -703,8 +795,11 @@ public partial class App : Application
         Settings.Save();
         if (show)
         {
-            _dropTarget ??= new DropTargetWindow();
-            _dropTarget.Closed += (_, _) => _dropTarget = null;
+            if (_dropTarget == null)
+            {
+                _dropTarget = new DropTargetWindow();
+                _dropTarget.Closed += (_, _) => _dropTarget = null;
+            }
             _dropTarget.Show();
         }
         else
@@ -721,7 +816,9 @@ public partial class App : Application
     void OnItemStarted(DownloadItem item)
     {
         bool fromRunningQueue = item.QueueId is { } q && Manager.IsQueueRunning(q);
-        if (Settings.ShowProgressWindow && !_progressWindows.ContainsKey(item.Id) && !fromRunningQueue)
+        if (_progressWindows.TryGetValue(item.Id, out var open))
+            open.EnsureActive(); // a window left open after "completed" stopped refreshing; wake it for the new run
+        else if (Settings.ShowProgressWindow && !fromRunningQueue)
             ShowProgress(item);
     }
 
@@ -742,7 +839,13 @@ public partial class App : Application
             Notify(Loc.T("main.notify.failed"), $"{item.FileName}\n{item.LastResult}", error: true);
 
         if (_progressWindows.TryGetValue(item.Id, out var w)) w.OnCompleted();
-        if (showDialog && !fromQueue) BringToFront(new CompleteWindow(item));
+        if (showDialog && !fromQueue)
+        {
+            // The "download complete" dialog offers the same actions (open file / folder): keep one window, not two.
+            // A torrent that keeps seeding still needs its progress window.
+            if (w != null && !(item.Kind == DownloadKind.Torrent && item.IsSeeding)) w.Close();
+            BringToFront(new CompleteWindow(item));
+        }
         else if (w == null) Notify(Loc.T("main.notify.completed"), item.FileName);
 
         if (item.OnDoneShutdown) ShutdownComputer(item.OnDoneForce);
@@ -776,13 +879,18 @@ public partial class App : Application
 
     public void ShutdownComputer(bool force)
     {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => ShutdownComputer(force)); return; }
+        try { Process.Start(new ProcessStartInfo("shutdown", force ? "/s /f /t 60" : "/s /t 60") { CreateNoWindow = true, UseShellExecute = false }); }
+        catch (Exception ex) { Log.Write("shutdown start failed: " + ex.Message); return; }
         Notify(Loc.T("main.notify.shutdownTitle"), Loc.T("main.notify.shutdownBody"));
-        Process.Start(new ProcessStartInfo("shutdown", force ? "/s /f /t 60" : "/s /t 60") { CreateNoWindow = true, UseShellExecute = false });
         MainView?.ShowShutdownBanner();
     }
 
     public static void CancelShutdown()
-        => Process.Start(new ProcessStartInfo("shutdown", "/a") { CreateNoWindow = true, UseShellExecute = false });
+    {
+        try { Process.Start(new ProcessStartInfo("shutdown", "/a") { CreateNoWindow = true, UseShellExecute = false }); }
+        catch (Exception ex) { Log.Write("cancel shutdown failed: " + ex.Message); }
+    }
 
     // ---------- tray ----------
 
@@ -796,7 +904,9 @@ public partial class App : Application
         }
         catch { icon = System.Drawing.SystemIcons.Application; }
 
-        _tray = new WinForms.NotifyIcon { Icon = icon, Text = Loc.T("main.tray.tooltip"), Visible = true };
+        var tip = Loc.T("main.tray.tooltip");
+        if (tip.Length > 127) tip = tip[..127];
+        _tray = new WinForms.NotifyIcon { Icon = icon, Text = tip, Visible = true };
         _tray.DoubleClick += (_, _) => ShowMain();
         _tray.BalloonTipClicked += (_, _) =>
         {
@@ -809,6 +919,7 @@ public partial class App : Application
 
     public void RefreshTrayMenu()
     {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(RefreshTrayMenu); return; }
         if (_tray == null) return;
         var menu = new WinForms.ContextMenuStrip { RightToLeft = Loc.IsRtl ? WinForms.RightToLeft.Yes : WinForms.RightToLeft.No };
         menu.Items.Add(Loc.T("main.tray.open"), null, (_, _) => ShowMain());
@@ -856,23 +967,39 @@ public partial class App : Application
 
     public void Notify(string title, string text, bool error = false, Action? onClick = null)
     {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => Notify(title, text, error, onClick)); return; }
         if (_tray == null) return;
-        _balloonAction = onClick;
-        _tray.BalloonTipTitle = title;
-        _tray.BalloonTipText = string.IsNullOrWhiteSpace(text) ? " " : text;
-        _tray.BalloonTipIcon = error ? WinForms.ToolTipIcon.Error : WinForms.ToolTipIcon.Info;
-        _tray.ShowBalloonTip(4000);
+        try
+        {
+            _balloonAction = onClick;
+            _tray.BalloonTipTitle = string.IsNullOrWhiteSpace(title) ? Loc.T("main.brand.name") : title;
+            _tray.BalloonTipText = string.IsNullOrWhiteSpace(text) ? " " : text;
+            _tray.BalloonTipIcon = error ? WinForms.ToolTipIcon.Error : WinForms.ToolTipIcon.Info;
+            _tray.ShowBalloonTip(4000);
+        }
+        catch (Exception ex)
+        {
+            Log.Write("tray notify failed: " + ex.Message);
+        }
     }
 
     public void ExitApp()
     {
+        if (_exiting) return;
+        _exiting = true;
+        MainView?.PrepareForExit();
+        if (_toolsProgressHandler != null)
+        {
+            MediaTools.ProgressChanged -= _toolsProgressHandler;
+            _toolsProgressHandler = null;
+        }
         _schedulerTimer?.Stop();
         SpeedRuleController?.Dispose();
         PowerGuard?.Dispose();
         _pipe?.Stop();
         Manager.Shutdown();
         Settings.Save();
-        if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
+        if (_tray != null) { _tray.Visible = false; _tray.Dispose(); _tray = null; }
         Shutdown();
     }
 }

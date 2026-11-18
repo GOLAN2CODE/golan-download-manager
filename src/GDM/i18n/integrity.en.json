@@ -81,5 +81,7 @@
   "stats.win.section.hosts": "Top Sites (Top 10)",
   "stats.win.col.name": "Name",
   "stats.win.col.size": "Size",
-  "stats.win.close": "Close"
+  "stats.win.close": "Close",
+  "speedrules.win.empty": "No scheduled speed rules yet. Click “Add Rule” to set time-based limits.",
+  "stats.win.empty": "No completed downloads in this time range yet."
 }

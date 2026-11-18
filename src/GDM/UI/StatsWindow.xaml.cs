@@ -7,7 +7,7 @@ namespace Golan.Gdm.UI;
 
 public partial class StatsWindow : Window
 {
-    public sealed record StatRow(string Name, string SizeText);
+    public sealed record StatRow(string Name, string SizeText, long Bytes = 0);
     public sealed record DailyBarItem(string Label, double BarHeight, string Tooltip);
 
     readonly StatsStore _store;
@@ -45,24 +45,32 @@ public partial class StatsWindow : Window
             ? Fmt.Duration(summary.ActiveSeconds)
             : "0:00";
 
-        CategoriesGrid.ItemsSource = summary.ByCategory
-            .Select(c => new StatRow(Categories.Get(c.Key).Name, Fmt.Size(c.Bytes)))
+        var catRows = summary.ByCategory
+            .Select(c => new StatRow(Categories.Get(c.Key).Name, Fmt.Size(c.Bytes), c.Bytes))
             .ToList();
+        CategoriesGrid.ItemsSource = catRows;
+        if (CategoriesEmptyText != null)
+            CategoriesEmptyText.Visibility = catRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        HostsGrid.ItemsSource = summary.TopHosts
-            .Select(h => new StatRow(h.Host, Fmt.Size(h.Bytes)))
+        var hostRows = summary.TopHosts
+            .Select(h => new StatRow(h.Host, Fmt.Size(h.Bytes), h.Bytes))
             .ToList();
+        HostsGrid.ItemsSource = hostRows;
+        if (HostsEmptyText != null)
+            HostsEmptyText.Visibility = hostRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
         long maxDayBytes = summary.DailySeries.Select(d => d.Bytes).DefaultIfEmpty(0).Max();
         double scale = maxDayBytes > 0 ? 85.0 / maxDayBytes : 0;
 
-        DailyBarsControl.ItemsSource = summary.DailySeries
+        var dailyItems = summary.DailySeries
             .TakeLast(60)
             .Select(d => new DailyBarItem(
                 d.Date.ToString("MM/dd", CultureInfo.InvariantCulture),
                 Math.Max(4.0, d.Bytes * scale),
                 $"{d.Date:yyyy-MM-dd}: {Fmt.Size(d.Bytes)} ({d.Files})"))
             .ToList();
+        DailyBarsControl.ItemsSource = dailyItems;
+        DailyEmptyText.Visibility = dailyItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     void Close_Click(object sender, RoutedEventArgs e) => Close();

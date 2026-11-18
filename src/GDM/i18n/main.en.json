@@ -387,6 +387,9 @@
   "main.add.later": "Download Later",
   "main.add.cancel": "Cancel",
   "main.add.connections": "{0} connections",
+  "main.add.connectionOne": "1 connection",
+  "main.welcome.manualHeader": "Manual install (if automatic setup does not work)",
+  "main.add.moreOptions": "More options (description, checksum, auto-extract)",
   "main.add.size_label": "Size: {0}",
   "main.add.sizeValue": "Size: {0}",
   "main.add.from_host": "From: {0}",
@@ -399,8 +402,8 @@
   "main.add.newCategoryTitle": "New Category",
   "main.add.new_category_text": "Enter the category name. You can configure extensions and folder in Options → Save To.",
   "main.add.newCategoryPrompt": "Enter the category name. You can configure extensions and folder in Options → Save To.",
-  "main.add.err_invalid_url": "URL must start with http:// or https://",
-  "main.add.invalidUrl": "URL must start with http:// or https://",
+  "main.add.err_invalid_url": "URL must start with http://, https://, ftp://, or magnet:",
+  "main.add.invalidUrl": "URL must start with http://, https://, ftp://, or magnet:",
   "main.add.probing": "Connecting to server…",
   "main.add.connecting": "Connecting to server…",
   "main.add.resumable_yes": "Resume & multi-segment supported ✓",
@@ -568,5 +571,7 @@
   "refresh.expired.title": "The download link expired",
   "refresh.expired.body": "“{0}” stopped because the site expired its link. Click here to refresh the address and continue from where it stopped.",
   "refresh.timeout": "The wait ran out. Try again whenever you like.",
-  "refresh.from_start": "the start"
+  "refresh.from_start": "the start",
+  "main.open.missingFile": "The file could not be found at its saved location. It may have been moved or deleted; you can redownload it from the list.",
+  "main.open.missingFolder": "The save folder no longer exists on disk."
 }

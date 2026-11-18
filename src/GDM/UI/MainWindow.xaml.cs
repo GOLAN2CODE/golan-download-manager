@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     DateTime _ignoreClipboardUntil = DateTime.MinValue;
     HwndSource? _hwnd;
     FindWindow? _lastFind;
+    readonly System.Collections.Specialized.NotifyCollectionChangedEventHandler _itemsChanged;
 
     public MainWindow()
     {
@@ -53,15 +54,22 @@ public partial class MainWindow : Window
         ApplySort();
         ApplyColumns();
         BuildArrangeMenu();
-        foreach (var b in Toolbar.Children.OfType<System.Windows.Controls.Primitives.ButtonBase>()) _toolCaptions[b] = b.Content;
+        foreach (var b in Toolbar.Children.OfType<System.Windows.Controls.Primitives.ButtonBase>())
+        {
+            _toolCaptions[b] = b.Content;
+            if (b.Content is string caption && !string.IsNullOrEmpty(caption) && string.IsNullOrEmpty(System.Windows.Automation.AutomationProperties.GetName(b)))
+                System.Windows.Automation.AutomationProperties.SetName(b, caption);
+            b.ToolTip ??= b.Content;
+        }
         ApplyToolbarSize();
         CategoryColumn.Width = _settings.HideCategories ? new GridLength(0) : new GridLength(250);
 
         LiveSpeedGraph.History = _manager.SpeedHistory;
         UpdateSpeedGraphVisibility();
 
+        _itemsChanged = (_, _) => UpdateCounts();
         _manager.Ticked += OnTick;
-        _manager.Items.CollectionChanged += (_, _) => UpdateCounts();
+        _manager.Items.CollectionChanged += _itemsChanged;
         AllowDrop = true;
         Drop += Window_Drop;
         DragOver += Window_DragOver;
@@ -69,6 +77,7 @@ public partial class MainWindow : Window
         InputBindings.Add(new KeyBinding(new RelayCommand(() => AddUrl_Click(this, new RoutedEventArgs())), Key.N, ModifierKeys.Control));
         InputBindings.Add(new KeyBinding(new RelayCommand(() => Find_Click(this, new RoutedEventArgs())), Key.F, ModifierKeys.Control));
         InputBindings.Add(new KeyBinding(new RelayCommand(() => FindNext_Click(this, new RoutedEventArgs())), Key.F3, ModifierKeys.None));
+        InputBindings.Add(new KeyBinding(new RelayCommand(ToggleSpeedGraph), Key.F11, ModifierKeys.None));
         InputBindings.Add(new KeyBinding(new RelayCommand(Clipboard_PasteUrl), Key.V, ModifierKeys.Control));
 
         SourceInitialized += (_, _) => HookClipboard();
@@ -163,16 +172,25 @@ public partial class MainWindow : Window
     {
         // A pasted link means "download this", not "search for this".
         var typed = SearchBox.Text.Trim();
-        if ((FileNames.IsHttpUrl(typed) || MagnetValidator.IsMagnetUri(typed)) && !typed.Contains(' '))
+        if ((FileNames.IsDownloadableUrl(typed) || MagnetValidator.IsMagnetUri(typed)) && !typed.Contains(' '))
         {
             SearchBox.Clear();
-            if (MediaDownloader.LooksLikeMediaPage(typed)) App.Instance.ShowVideo(typed, "", "", null, []);
-            else App.Instance.ShowAddUrl(typed);
+            App.Instance.ShowAddUrl(typed);
             return;
         }
         _search = typed;
         _view.Refresh();
         UpdateEmptyState();
+    }
+
+    void SearchBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && SearchBox.Text.Length > 0)
+        {
+            SearchBox.Clear();
+            Grid.Focus();
+            e.Handled = true;
+        }
     }
 
     void Find_Click(object sender, RoutedEventArgs e)
@@ -218,6 +236,7 @@ public partial class MainWindow : Window
         StatusActive.Text = active > 0 ? Loc.T("main.status.downloading", active) : Loc.T("main.status.idle");
         if (DateTime.UtcNow - _licenseShownAt > TimeSpan.FromMinutes(1)) RefreshLicenseStatus();
         StatusSpeed.Text = active > 0 ? Fmt.Speed(_manager.TotalSpeed) : "";
+        StatusSep.Visibility = active > 0 ? Visibility.Visible : Visibility.Collapsed;
         StatusLimiter.Text = _manager.Limiter.Enabled
             ? Loc.T("main.status.limiter", Fmt.Speed(_manager.Limiter.BytesPerSecond))
             : (_settings.SpeedLimitEnabled ? Loc.T("main.status.limiter", Fmt.Speed(_settings.SpeedLimitKB * 1024.0)) : "");
@@ -228,14 +247,11 @@ public partial class MainWindow : Window
         QueueToggle.IsChecked = _manager.IsQueueRunning(QueueDef.MainId);
         if (_settings.ShowSpeedGraph)
             LiveSpeedGraph.Refresh();
-        if (++_tick % 4 == 0)
+        if (_tick++ % 4 == 0)
         {
             UpdateCounts();
             UpdateSelectionButtons();
             BrowserStatus.Text = BrowserIntegration.IsRegistered() ? Loc.T("main.status.browserReady") : Loc.T("main.status.browserNotReady");
-        }
-        if (_tick % 4 == 0)
-        {
             var t = _manager.ActiveCount > 0 ? $"{Loc.T("main.brand.name")} · {Fmt.Speed(_manager.TotalSpeed)}" : Loc.T("main.title");
             if (Title != t) Title = t;
         }
@@ -281,7 +297,9 @@ public partial class MainWindow : Window
 
     // ---------- closing ----------
 
-    void MainWindow_Closing(object? sender, CancelEventArgs e)
+    bool _hooksCleaned;
+
+    void SaveColumnWidths()
     {
         var map = ColumnMap();
         foreach (var pref in _settings.Columns)
@@ -289,6 +307,32 @@ public partial class MainWindow : Window
             if (map.TryGetValue(pref.Key, out var c))
                 pref.Width = c.Width.IsStar && pref.Key is "name" or "status" ? 0 : c.ActualWidth;
         }
+    }
+
+    void CleanupHooks()
+    {
+        if (_hooksCleaned) return;
+        _hooksCleaned = true;
+        if (_hwnd != null)
+        {
+            RemoveClipboardFormatListener(_hwnd.Handle);
+            _hwnd.RemoveHook(WndProc);
+            _hwnd = null;
+        }
+        _manager.Ticked -= OnTick;
+        _manager.Items.CollectionChanged -= _itemsChanged;
+    }
+
+    public void PrepareForExit()
+    {
+        SaveColumnWidths();
+        CleanupHooks();
+    }
+
+    void MainWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        if (App.Instance.IsExiting) return;
+        SaveColumnWidths();
         _settings.Save();
         if (_settings.CloseToTray)
         {
@@ -297,7 +341,7 @@ public partial class MainWindow : Window
             if (_manager.ActiveCount > 0) App.Instance.Notify(Loc.T("main.notify.stillRunningTitle"), Loc.T("main.notify.stillRunningBody"));
             return;
         }
-        if (_hwnd != null) RemoveClipboardFormatListener(_hwnd.Handle);
+        CleanupHooks();
         e.Cancel = true;
         App.Instance.ExitApp();
     }

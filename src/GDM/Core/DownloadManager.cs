@@ -319,14 +319,26 @@ public sealed partial class DownloadManager
 
     static void DeleteAllPartialFiles(DownloadItem item)
     {
-        MediaDownloader.TryDelete(item.TempPath);
+        var activeTmp = item.ActiveTempPath;
+        var currentTmp = item.TempPath;
+        MediaDownloader.TryDelete(currentTmp);
+        StreamDownloader.DeleteSidecars(currentTmp);
+        if (!string.IsNullOrWhiteSpace(activeTmp))
+        {
+            MediaDownloader.TryDelete(activeTmp);
+            StreamDownloader.DeleteSidecars(activeTmp);
+        }
         if (!string.IsNullOrWhiteSpace(item.FullPath))
         {
-            MediaDownloader.TryDelete(item.FullPath + ".gdm");
+            var adj = item.FullPath + ".gdm";
+            MediaDownloader.TryDelete(adj);
+            StreamDownloader.DeleteSidecars(adj);
         }
         if (!string.IsNullOrWhiteSpace(DownloadItem.TempRoot))
         {
-            MediaDownloader.TryDelete(Path.Combine(DownloadItem.TempRoot, $"{item.Id:N}.gdm"));
+            var rootTmp = Path.Combine(DownloadItem.TempRoot, $"{item.Id:N}.gdm");
+            MediaDownloader.TryDelete(rootTmp);
+            StreamDownloader.DeleteSidecars(rootTmp);
         }
     }
 
@@ -361,7 +373,7 @@ public sealed partial class DownloadManager
             tempShared = Items.Any(other => other.Id != item.Id && string.Equals(other.TempPath, item.TempPath, StringComparison.OrdinalIgnoreCase));
         }
         if (!tempShared && !pathShared) DeleteAllPartialFiles(item);
-        else if (!tempShared) MediaDownloader.TryDelete(item.TempPath);
+        else if (!tempShared) { MediaDownloader.TryDelete(item.TempPath); StreamDownloader.DeleteSidecars(item.TempPath); }
         MediaDownloader.TryDelete(item.MediaCookieFile);
         if (!pathShared && item.Kind == DownloadKind.Media && item.Status != DownloadStatus.Completed) MediaDownloader.DeletePartials(item);
         if (deleteFile && !pathShared) MediaDownloader.TryDelete(item.FullPath);
@@ -443,8 +455,12 @@ public sealed partial class DownloadManager
             {
                 if (item.Status == DownloadStatus.Completed && File.Exists(oldFull) && !string.Equals(oldFull, item.FullPath, StringComparison.OrdinalIgnoreCase))
                     File.Move(oldFull, item.FullPath, overwrite: true);
-                else if (File.Exists(oldTemp) && !string.Equals(oldTemp, item.TempPath, StringComparison.OrdinalIgnoreCase))
-                    File.Move(oldTemp, item.TempPath, overwrite: true);
+                else if (!string.Equals(oldTemp, item.TempPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (File.Exists(oldTemp))
+                        File.Move(oldTemp, item.TempPath, overwrite: true);
+                    StreamDownloader.MoveSidecars(oldTemp, item.TempPath);
+                }
             }
             catch (Exception ex) { Log.Write("relocate move failed: " + ex.Message); }
         }
@@ -568,8 +584,10 @@ public sealed partial class DownloadManager
                 {
                     MediaDownloader.TryDelete(item.FullPath);
                     MediaDownloader.TryDelete(item.TempPath);
+                    StreamDownloader.DeleteSidecars(item.TempPath);
                     item.LastResult = Loc.T("core.sync.changed");
                     item.ResetProgress();
+                    item.TriggeredBySync = true;
                     item.CompletedAt = null;
                     item.Status = DownloadStatus.Queued;
                     PathRegistry.Claim(item.Id, item.FullPath);
@@ -659,8 +677,15 @@ public sealed partial class DownloadManager
             item.Category = Categories.Detect(item.FileName, item.Url);
             PathRegistry.Claim(item.Id, item.FullPath);
         }
-        if (resolved.Size > 0 && item.TotalSize <= 0)
+        if (resolved.Size > 0 && (item.TotalSize <= 0 || item.Downloaded <= 0))
             item.TotalSize = resolved.Size;
+        if (resolved.Headers.TryGetValue("Cookie", out var resolverCookie)
+            && !string.IsNullOrWhiteSpace(resolverCookie)
+            && string.IsNullOrEmpty(item.Cookies))
+        {
+            item.Cookies = resolverCookie;
+            item.CookieHost = resolved.Direct.Host;
+        }
         if (resolved.NeedsMegaDecrypt && resolved.MegaKey is { Length: 32 })
         {
             item.NeedsMegaDecrypt = true;
@@ -684,13 +709,25 @@ public sealed partial class DownloadManager
         Guid? completedQueueId = null;
         try
         {
-            if (item.Kind == DownloadKind.Media)
+            if (FileNames.IsDataUrl(item.Url))
+            {
+                await DataUrlDownloader.RunAsync(item, Limiter, cts.Token);
+            }
+            else if (FileNames.IsFtpUrl(item.Url))
+            {
+                await Task.Run(() => new FtpDownloader(item, Limiter).RunAsync(cts.Token));
+            }
+            else if (item.Kind == DownloadKind.Media)
             {
                 await MediaDownloader.RunAsync(item, Limiter, cts.Token);
             }
             else if (item.Kind == DownloadKind.Torrent)
             {
                 await RunTorrentAsync(item, cts.Token);
+            }
+            else if (StreamDownloader.IsDirectStreamUrl(item.Url))
+            {
+                await StreamDownloader.RunAsync(item, Limiter, cts.Token);
             }
             else
             {
@@ -734,9 +771,9 @@ public sealed partial class DownloadManager
         }
         catch (Exception ex)
         {
-            Log.Write($"download failed {item.Url}: {ex}");
+            Log.Write($"download failed {Log.StripUserInfo(item.Url)}: {ex}");
             item.LastFailKind = FailKindOf(ex);
-            item.ErrorMessage = ex is DownloadException ? ex.Message : Loc.T("core.error.generic", ex.Message);
+            item.ErrorMessage = ex is DownloadException ? ex.Message : FriendlyError.Format(ex);
             item.LastResult = Loc.T("core.status.error", item.ErrorMessage);
 
             var q = Settings.FindQueue(item.QueueId);
@@ -892,7 +929,8 @@ public sealed partial class DownloadManager
                 tickBytes += delta;
                 if (delta > 0)
                     Stats.Record(delta, item.Host, item.Category);
-                if (item.Kind == DownloadKind.Http && item.Status == DownloadStatus.Downloading)
+                bool directSpeed = item.Kind == DownloadKind.Http || FileNames.IsFtpUrl(item.Url) || StreamDownloader.IsDirectStreamUrl(item.Url);
+                if (directSpeed && item.Status == DownloadStatus.Downloading)
                 {
                     var dt = (now - prev.At).TotalSeconds;
                     if (dt > 0)
@@ -902,7 +940,7 @@ public sealed partial class DownloadManager
                     }
                 }
             }
-            if (item.Kind == DownloadKind.Http)
+            if (item.Kind == DownloadKind.Http || FileNames.IsFtpUrl(item.Url) || StreamDownloader.IsDirectStreamUrl(item.Url))
                 item.Eta = item.Speed > 1 && item.TotalSize > 0 ? TimeSpan.FromSeconds((item.TotalSize - bytes) / item.Speed) : null;
             item.RefreshLive();
         }

@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Golan.Gdm.UI"
         xmlns:core="clr-namespace:Golan.Gdm.Core"
-        Title="{core:T win.batch.title}" Height="600" Width="980"
+        Title="{core:T win.batch.title}" Height="700" MinHeight="560" Width="980"
         WindowStartupLocation="CenterScreen" Style="{StaticResource GdmWindow}"
         Icon="/Assets/gdm.ico">
     <Window.Resources>
@@ -30,7 +30,7 @@
         <Grid Margin="16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
+                <RowDefinition Height="*" MinHeight="150"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
@@ -39,7 +39,8 @@
                 <StackPanel>
                     <TextBlock Text="{core:T win.batch.paste_label}" Style="{StaticResource Label}"/>
                     <TextBox x:Name="PasteBox" FlowDirection="LeftToRight" TextWrapping="Wrap" AcceptsReturn="True"
-                             VerticalScrollBarVisibility="Auto" MinHeight="80" Margin="0,0,0,8"/>
+                             VerticalScrollBarVisibility="Auto" MinHeight="80" Margin="0,0,0,8"
+                             AutomationProperties.Name="{core:T win.batch.paste_label}"/>
                     <DockPanel LastChildFill="False">
                         <Button x:Name="PasteFromClipboardBtn" Content="{core:T win.batch.paste_clipboard}" Padding="14,6"
                                 Click="PasteFromClipboard_Click"/>
@@ -60,7 +61,7 @@
                         <TextBlock Text="{core:T win.batch.text_filter}" VerticalAlignment="Center" Margin="0,0,10,0"
                                    Foreground="{DynamicResource Muted}"/>
                         <TextBox x:Name="FilterBox" FlowDirection="LeftToRight" TextChanged="FilterBox_TextChanged"
-                                 Tag="{core:T win.batch.text_filter_tag}"/>
+                                 Tag="{core:T win.batch.text_filter_tag}" AutomationProperties.Name="{core:T win.batch.text_filter}"/>
                     </DockPanel>
                 </StackPanel>
             </Border>
@@ -75,9 +76,12 @@
                         <Button x:Name="SelectNoneBtn" Content="{core:T win.batch.select_none}" Padding="12,5" Margin="6,0,0,0"
                                 Click="SelectNone_Click" Style="{StaticResource ToolButton}" Tag="&#xE73D;"/>
                     </StackPanel>
+                    <Grid>
                     <DataGrid x:Name="LinksGrid" AutoGenerateColumns="False" CanUserSortColumns="True" SelectionMode="Extended"
+                              CanUserAddRows="False" CanUserDeleteRows="False"
                               ItemsSource="{Binding}" RowHeaderWidth="0" GridLinesVisibility="Horizontal"
-                              HorizontalGridLinesBrush="{DynamicResource GridLine}" Background="{DynamicResource Surface}">
+                              HorizontalGridLinesBrush="{DynamicResource GridLine}" Background="{DynamicResource Surface}"
+                              AutomationProperties.Name="{core:T win.batch.title}">
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Header="" Width="40" SortMemberPath="Selected">
                                 <DataGridTemplateColumn.CellTemplate>
@@ -105,6 +109,7 @@
                                         <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
                                         <Setter Property="VerticalAlignment" Value="Center"/>
                                         <Setter Property="FontWeight" Value="Medium"/>
+                                        <Setter Property="FlowDirection" Value="{Binding FileName, Converter={StaticResource TextDir}}"/>
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
@@ -132,6 +137,10 @@
                             </DataGridTextColumn>
                         </DataGrid.Columns>
                     </DataGrid>
+                    <TextBlock x:Name="EmptyLinksText" Foreground="{DynamicResource Muted}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap"
+                               Margin="24" IsHitTestVisible="False" Visibility="Collapsed"/>
+                    </Grid>
                 </DockPanel>
             </Border>
 
@@ -141,7 +150,7 @@
                     <TextBlock Text="{core:T win.batch.save_label}" Style="{StaticResource Label}"/>
                     <RadioButton x:Name="CategoryFolderRadio" Content="{core:T win.batch.save_by_cat}" IsChecked="True"/>
                     <RadioButton x:Name="OneCategoryRadio" Content="{core:T win.batch.save_one_cat}"/>
-                    <ComboBox x:Name="CategoryCombo" Visibility="Collapsed">
+                    <ComboBox x:Name="CategoryCombo" Visibility="Collapsed" AutomationProperties.Name="{core:T win.batch.save_one_cat}">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding Key, Converter={StaticResource CategoryNameConverter}}"/>
@@ -150,9 +159,10 @@
                     </ComboBox>
                     <RadioButton x:Name="CustomFolderRadio" Content="{core:T win.batch.save_custom}"/>
                     <DockPanel x:Name="CustomFolderPanel" LastChildFill="True" Margin="0,4,0,0" Visibility="Collapsed">
-                        <Button x:Name="BrowseCustomBtn" DockPanel.Dock="Left" Content="{core:T win.batch.browse}" Padding="14,6"
-                                Margin="0,0,8,0" Click="BrowseCustom_Click"/>
-                        <TextBox x:Name="CustomFolderBox" FlowDirection="LeftToRight" Tag="{core:T win.batch.custom_folder_tag}"/>
+                        <Button x:Name="BrowseCustomBtn" DockPanel.Dock="Right" Content="{core:T win.batch.browse}" Padding="14,6"
+                                Margin="8,0,0,0" Click="BrowseCustom_Click"/>
+                        <TextBox x:Name="CustomFolderBox" FlowDirection="LeftToRight" Tag="{core:T win.batch.custom_folder_tag}"
+                                 AutomationProperties.Name="{core:T win.batch.save_custom}"/>
                     </DockPanel>
                     <WrapPanel Margin="0,8,0,0">
                         <CheckBox x:Name="DescriptionBox" Content="{core:T win.batch.use_link_desc}"/>
@@ -166,7 +176,8 @@
                     <WrapPanel Margin="0,4,0,0">
                         <CheckBox x:Name="RenameBox" Content="{core:T win.batch.rename_pattern}"/>
                         <TextBox x:Name="RenamePatternBox" Width="220" Margin="10,0,0,0"
-                                 FlowDirection="LeftToRight" Tag="photo_*.jpg"/>
+                                 FlowDirection="LeftToRight" Tag="photo_*.jpg"
+                                 AutomationProperties.Name="{core:T win.batch.rename_pattern}"/>
                     </WrapPanel>
                 </StackPanel>
             </Border>

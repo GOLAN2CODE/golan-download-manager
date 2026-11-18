@@ -50,5 +50,9 @@
   "idm.import_btn": "Import Selected",
   "idm.cancel_btn": "Cancel",
   "idm.result.imported": "Imported {0} download(s) ({1} duplicate(s) skipped).",
-  "store.pack.ok": "Created store packages: {0} and {1}"
+  "store.pack.ok": "Created store packages: {0} and {1}",
+  "remote.devices.revoke_all_confirm": "Revoke all paired devices? Each device will need a new PIN to reconnect.",
+  "idm.empty": "Choose an IDM export file (.ef2) or click “Scan Installed IDM” to preview downloads.",
+  "idm.loading": "Reading download list…",
+  "remote.url_aria": "Remote pairing URL"
 }

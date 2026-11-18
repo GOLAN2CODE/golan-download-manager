@@ -243,9 +243,9 @@ public static class Tests_P1
                 File.WriteAllBytes(downgradeRefItem.TempPath, []);
                 await new HttpDownloader(downgradeRefItem, limiter).RunAsync(CancellationToken.None);
 
-                Check("P1-4 (H-4): Referer sent on same-host but stripped on cross-host redirect and https->http downgrade",
+                Check("P1-4 (H-4): Referer sent on same-host, trimmed to origin on cross-host redirect, and stripped on https->http downgrade",
                     auxServer.LastRefererFor("same.bin") == $"{auxServer.BaseUrl}/source-page.html" &&
-                    string.IsNullOrEmpty(auxServer.LastRefererFor("cross.bin")) &&
+                    auxServer.LastRefererFor("cross.bin") == $"{auxServer.BaseUrl}/" &&
                     string.IsNullOrEmpty(auxServer.LastRefererFor("downgrade.bin")),
                     $"same='{auxServer.LastRefererFor("same.bin")}', cross='{auxServer.LastRefererFor("cross.bin")}', downgrade='{auxServer.LastRefererFor("downgrade.bin")}'");
 

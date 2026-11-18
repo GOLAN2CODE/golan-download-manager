@@ -794,7 +794,7 @@ public static class Tests_V1
             if (!r.Ok && r.ExitCode == 2 && !string.IsNullOrEmpty(r.ErrorMessage))
                 badCaught++;
         }
-        Check("F15-03: CliParser.Parse rejects unknown flags, missing values, UNC/ADS/traversal paths, --start+--later conflict, and non-http/https/ftp/magnet URLs with exit code 2",
+        Check("F15-03: CliParser.Parse rejects unknown flags, missing values, UNC/ADS/traversal paths, --start+--later conflict, and non-http/https/ftp/ftps/magnet URLs (including data:) with exit code 2",
             badCaught == badArgCases.Length,
             $"caught={badCaught}/{badArgCases.Length}");
 

@@ -75,15 +75,29 @@ public static class Integrity
         HashAlgorithmName.SHA512,
     ];
 
-    static readonly HttpClient SumsHttpClient = new(new SocketsHttpHandler
+    public static System.Net.Http.HttpClient SumsHttpClient { get; private set; } = BuildSumsClient(HttpDownloader.Options);
+
+    public static void Configure(AppSettings settings)
     {
-        AllowAutoRedirect = false,
-        ConnectTimeout = TimeSpan.FromSeconds(10),
-        AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-    })
+        SumsHttpClient = BuildSumsClient(settings);
+    }
+
+    static System.Net.Http.HttpClient BuildSumsClient(AppSettings s)
     {
-        Timeout = TimeSpan.FromSeconds(10),
-    };
+        var handler = new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            UseCookies = false,
+            ConnectTimeout = TimeSpan.FromSeconds(10),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+        };
+        HttpDownloader.ApplyProxy(handler, s);
+        return new System.Net.Http.HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(10),
+        };
+    }
 
     /// <summary>Streams <paramref name="path"/> once on a background thread with a 1 MB buffer, computing all requested algorithms simultaneously.</summary>
     public static Task<Dictionary<HashAlgorithmName, string>> ComputeAsync(
@@ -329,7 +343,7 @@ public static class Integrity
     public static async Task<HashSpec?> DiscoverHashAsync(
         string fileUrl,
         string? fileName = null,
-        HttpClient? client = null,
+        System.Net.Http.HttpClient? client = null,
         CancellationToken ct = default)
     {
         if (!Uri.TryCreate(fileUrl, UriKind.Absolute, out var baseUri)) return null;
@@ -377,7 +391,7 @@ public static class Integrity
            targetUri.Port == originUri.Port &&
            !(originUri.Scheme == Uri.UriSchemeHttps && targetUri.Scheme != Uri.UriSchemeHttps);
 
-    static async Task<string?> FetchSameHostTextAsync(HttpClient http, Uri originUri, Uri requestUri, CancellationToken callerCt, CancellationToken token)
+    static async Task<string?> FetchSameHostTextAsync(System.Net.Http.HttpClient http, Uri originUri, Uri requestUri, CancellationToken callerCt, CancellationToken token)
     {
         Uri current = requestUri;
         for (int hop = 0; hop <= 3; hop++)

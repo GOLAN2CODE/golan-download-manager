@@ -116,23 +116,36 @@ public partial class OptionsWindow
             DisplayMemberPath = "Name"
         };
         categories.ItemsSource = _working.CategoryDefs;
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal };
-        var add = new Button { Content = Loc.T("win.options.add") };
-        var edit = new Button { Content = Loc.T("win.options.edit"), Margin = new Thickness(6, 0, 0, 0) };
-        var del = new Button { Content = Loc.T("win.options.delete"), Margin = new Thickness(6, 0, 0, 0) };
-        buttons.Children.Add(add);
-        buttons.Children.Add(edit);
-        buttons.Children.Add(del);
-        add.Click += (_, _) => EditCategory(null, categories);
-        edit.Click += (_, _) => EditCategory(categories.SelectedItem as CategoryDef, categories);
-        del.Click += (_, _) =>
-        {
-            if (categories.SelectedItem is CategoryDef c && !c.BuiltIn)
+        var buttons = EditorButtons(
+            () => EditCategory(null, categories),
+            () =>
             {
-                _working.CategoryDefs.Remove(c);
-            }
-            categories.Items.Refresh();
+                if (categories.SelectedItem is CategoryDef sel)
+                    EditCategory(sel, categories);
+            },
+            () =>
+            {
+                if (categories.SelectedItem is CategoryDef c && !c.BuiltIn)
+                {
+                    _working.CategoryDefs.Remove(c);
+                    categories.Items.Refresh();
+                }
+            });
+        var editBtn = buttons.Children.OfType<Button>().ElementAtOrDefault(1);
+        var delBtn = buttons.Children.OfType<Button>().ElementAtOrDefault(2);
+        void SyncCatButtons()
+        {
+            var sel = categories.SelectedItem as CategoryDef;
+            if (editBtn != null) editBtn.IsEnabled = sel != null;
+            if (delBtn != null) delBtn.IsEnabled = sel is { BuiltIn: false };
+        }
+        categories.SelectionChanged += (_, _) => SyncCatButtons();
+        categories.MouseDoubleClick += (_, _) =>
+        {
+            if (categories.SelectedItem is CategoryDef sel)
+                EditCategory(sel, categories);
         };
+        SyncCatButtons();
         p.Children.Add(Card(
             Label(Loc.T("win.options.save.categories")),
             categories,
@@ -166,14 +179,24 @@ public partial class OptionsWindow
             Style = (Style)FindResource("GdmWindow")
         };
         var panel = new StackPanel { Margin = new Thickness(20) };
+        var nameBox = Text(nameVal, v => nameVal = v);
+        System.Windows.Automation.AutomationProperties.SetName(nameBox, Loc.T("win.options.save.cat.name"));
+        var extBox = Text(extVal, v => extVal = v, true);
+        System.Windows.Automation.AutomationProperties.SetName(extBox, Loc.T("win.options.save.cat.extensions"));
+        var sitesBox = Text(sitesVal, v => sitesVal = v, true);
+        System.Windows.Automation.AutomationProperties.SetName(sitesBox, Loc.T("win.options.save.cat.sites"));
+        var folderBorder = PathBox(folderVal, v => folderVal = v);
+        if (folderBorder.Child is DockPanel folderDp)
+            foreach (var sub in folderDp.Children.OfType<TextBox>())
+                System.Windows.Automation.AutomationProperties.SetName(sub, Loc.T("win.options.save.cat.folder"));
         panel.Children.Add(Label(Loc.T("win.options.save.cat.name")));
-        panel.Children.Add(Text(nameVal, v => nameVal = v));
+        panel.Children.Add(nameBox);
         panel.Children.Add(Label(Loc.T("win.options.save.cat.extensions")));
-        panel.Children.Add(Text(extVal, v => extVal = v, true));
+        panel.Children.Add(extBox);
         panel.Children.Add(Label(Loc.T("win.options.save.cat.sites")));
-        panel.Children.Add(Text(sitesVal, v => sitesVal = v, true));
+        panel.Children.Add(sitesBox);
         panel.Children.Add(Label(Loc.T("win.options.save.cat.folder")));
-        panel.Children.Add(PathBox(folderVal, v => folderVal = v));
+        panel.Children.Add(folderBorder);
         panel.Children.Add(Check(Loc.T("win.options.save.cat.remember_last"), () => rememberVal, v => rememberVal = v));
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 16, 0, 0) };
@@ -226,16 +249,19 @@ public partial class OptionsWindow
             var test = new Button
             {
                 Content = Loc.T("win.options.sounds.test"),
-                Padding = new Thickness(12, 5, 12, 5)
+                Padding = new Thickness(12, 5, 12, 5),
+                Margin = new Thickness(6, 0, 0, 0)
             };
-            DockPanel.SetDock(test, Dock.Left);
+            System.Windows.Automation.AutomationProperties.SetName(test, $"{label} — {Loc.T("win.options.sounds.test")}");
+            DockPanel.SetDock(test, Dock.Right);
             var browse = new Button
             {
                 Content = Loc.T("win.options.browse"),
                 Padding = new Thickness(12, 5, 12, 5),
                 Margin = new Thickness(6, 0, 0, 0)
             };
-            DockPanel.SetDock(browse, Dock.Left);
+            System.Windows.Automation.AutomationProperties.SetName(browse, $"{label} — {Loc.T("win.options.browse")}");
+            DockPanel.SetDock(browse, Dock.Right);
             var box = Text(_working.Sounds.GetValueOrDefault(key) ?? "", v => _working.Sounds[key] = v, true);
             browse.Click += (_, _) =>
             {
@@ -247,14 +273,28 @@ public partial class OptionsWindow
             };
             test.Click += (_, _) =>
             {
-                var path = box.Text;
+                var path = box.Text.Trim();
+                if (path.Length == 0)
+                {
+                    SystemSounds.Asterisk.Play();
+                    return;
+                }
                 if (File.Exists(path))
                 {
-                    new SoundPlayer(path).Play();
+                    try
+                    {
+                        using var sp = new SoundPlayer(path);
+                        sp.Play();
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Write("options sound test failed: " + ex.Message);
+                        Confirm.Info(this, Loc.T("win.options.sounds.title"), Loc.T("win.options.sounds.play_failed", FriendlyError.Format(ex)));
+                    }
                 }
                 else
                 {
-                    SystemSounds.Asterisk.Play();
+                    Confirm.Info(this, Loc.T("win.options.sounds.title"), Loc.T("win.options.sounds.file_missing"));
                 }
             };
             row.Children.Add(test);
@@ -268,6 +308,11 @@ public partial class OptionsWindow
     StackPanel BrowsersPage()
     {
         var p = Page(Loc.T("win.options.browsers.title"), Loc.T("win.options.browsers.note"));
+        p.Children.Add(new ExtensionAutoInstallPanel(
+            openManualGuide: exe => App.Instance?.ShowBrowserGuide(this, exe))
+        {
+            Margin = new Thickness(0, 0, 0, 12),
+        });
         var registered = BrowserIntegration.IsRegistered();
         var statusText = new TextBlock
         {
@@ -282,7 +327,12 @@ public partial class OptionsWindow
             Foreground = Brush("Muted"),
             Margin = new Thickness(0, 8, 0, 0)
         };
-        p.Children.Add(Card(statusText, instructions, new Button { Content = Loc.T("win.options.browsers.open_folder") }));
+        p.Children.Add(Card(statusText, instructions, new Button
+        {
+            Content = Loc.T("win.options.browsers.open_folder"),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 10, 0, 0)
+        }));
         var openFolder = (Button)((StackPanel)((Border)p.Children[^1]).Child).Children[^1];
         openFolder.Click += (_, _) => BrowserIntegration.OpenExtensionFolder();
         var path = Text(AppPaths.ExtensionDir, _ => { }, true);
@@ -290,15 +340,23 @@ public partial class OptionsWindow
         var copy = new Button
         {
             Content = Loc.T("win.options.browsers.copy"),
-            Padding = new Thickness(12, 5, 12, 5)
+            Padding = new Thickness(12, 5, 12, 5),
+            Margin = new Thickness(6, 0, 0, 0)
         };
         copy.Click += (_, _) =>
         {
-            App.Instance.MainView?.SuppressClipboard();
-            Clipboard.SetText(AppPaths.ExtensionDir);
+            try
+            {
+                App.Instance?.MainView?.SuppressClipboard();
+                Clipboard.SetText(AppPaths.ExtensionDir);
+            }
+            catch (Exception ex)
+            {
+                Log.Write("options copy ext dir failed: " + ex.Message);
+            }
         };
         var row = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(copy, Dock.Left);
+        DockPanel.SetDock(copy, Dock.Right);
         row.Children.Add(copy);
         row.Children.Add(path);
         p.Children.Add(Card(Label(Loc.T("win.options.browsers.ext_dir")), row));
@@ -307,15 +365,23 @@ public partial class OptionsWindow
         var copyXpi = new Button
         {
             Content = Loc.T("win.options.browsers.copy"),
-            Padding = new Thickness(12, 5, 12, 5)
+            Padding = new Thickness(12, 5, 12, 5),
+            Margin = new Thickness(6, 0, 0, 0)
         };
         copyXpi.Click += (_, _) =>
         {
-            App.Instance.MainView?.SuppressClipboard();
-            Clipboard.SetText(BrowserIntegration.FirefoxXpiPath);
+            try
+            {
+                App.Instance?.MainView?.SuppressClipboard();
+                Clipboard.SetText(BrowserIntegration.FirefoxXpiPath);
+            }
+            catch (Exception ex)
+            {
+                Log.Write("options copy xpi path failed: " + ex.Message);
+            }
         };
         var xpiRow = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(copyXpi, Dock.Left);
+        DockPanel.SetDock(copyXpi, Dock.Right);
         xpiRow.Children.Add(copyXpi);
         xpiRow.Children.Add(xpiPath);
         p.Children.Add(Card(Label(Loc.T("win.options.browsers.firefox_xpi")), xpiRow));
@@ -329,13 +395,14 @@ public partial class OptionsWindow
             };
             open.SetResourceReference(StyleProperty, "Primary");
             System.Windows.Automation.AutomationProperties.SetAutomationId(open, "AddGolanTo_" + Path.GetFileNameWithoutExtension(browser.ExePath ?? "browser"));
-            open.Click += (_, _) => App.Instance.ShowBrowserGuide(this, Path.GetFileName(browser.ExePath ?? ""));
+            open.Click += (_, _) => App.Instance?.ShowBrowserGuide(this, Path.GetFileName(browser.ExePath ?? ""));
+            DockPanel.SetDock(open, Dock.Right);
             var browserLabel = new TextBlock
             {
                 Text = browser.Name,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            p.Children.Add(Card(new DockPanel { Children = { browserLabel, open } }));
+            p.Children.Add(Card(new DockPanel { Children = { open, browserLabel } }));
         }
         return p;
     }

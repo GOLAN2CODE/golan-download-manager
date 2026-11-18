@@ -26,7 +26,7 @@
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
                         <Button Content="{core:T win.scheduler.new_queue}" Click="NewQueue_Click" Padding="10,6"/>
-                        <Button Content="{core:T win.scheduler.delete}" Margin="0,7,0,0" Click="DeleteQueue_Click" Padding="10,6"/>
+                        <Button x:Name="DeleteQueueBtn" Content="{core:T win.scheduler.delete}" Margin="0,7,0,0" Click="DeleteQueue_Click" Padding="10,6"/>
                     </StackPanel>
                     <ListBox x:Name="QueuesList" Background="Transparent" BorderThickness="0"
                              SelectionChanged="QueuesList_SelectionChanged"
@@ -65,37 +65,47 @@
                                     <CheckBox x:Name="PeriodicBox" Content="{core:T win.scheduler.periodic}" Margin="0,0,0,10" Click="QueueOptionChanged_Click"/>
                                     <TextBlock Text="{core:T win.scheduler.start_time}" Style="{StaticResource Label}"/>
                                     <TextBox x:Name="StartTimeBox" Width="100" HorizontalAlignment="Left" FlowDirection="LeftToRight"
-                                             TextChanged="TimeBox_TextChanged"/>
+                                             TextChanged="TimeBox_TextChanged" AutomationProperties.Name="{core:T win.scheduler.start_time}"/>
                                     <TextBlock x:Name="TimeError" Foreground="{DynamicResource Danger}" FontSize="12"/>
                                     <WrapPanel Margin="0,10,0,0">
                                         <RadioButton x:Name="OnceRadio" Content="{core:T win.scheduler.once}" GroupName="ScheduleType" Checked="ScheduleType_Checked"/>
-                                        <DatePicker x:Name="OnceDatePicker" Width="140" Margin="10,0,0,0" SelectedDateChanged="QueueOptionChanged_SelectedDateChanged"/>
-                                        <RadioButton x:Name="DailyRadio" Content="{core:T win.scheduler.daily}" GroupName="ScheduleType" Margin="16,0,0,0" Checked="ScheduleType_Checked"/>
+                                        <DatePicker x:Name="OnceDatePicker" Width="140" Margin="10,0,0,0" SelectedDateChanged="QueueOptionChanged_SelectedDateChanged"
+                                                    AutomationProperties.Name="{core:T win.scheduler.once}"/>
                                     </WrapPanel>
+                                    <!-- "Daily" sits on its own line, right above its days: the date belongs to "once" only. -->
+                                    <RadioButton x:Name="DailyRadio" Content="{core:T win.scheduler.daily}" GroupName="ScheduleType" Margin="0,8,0,0" Checked="ScheduleType_Checked"/>
                                     <WrapPanel x:Name="DaysPanel" Margin="0,6,0,0">
-                                        <CheckBox Tag="Saturday" Content="{core:T win.scheduler.day.sat}" Margin="0,4,12,4"/>
-                                        <CheckBox Tag="Sunday" Content="{core:T win.scheduler.day.sun}" Margin="0,4,12,4"/>
-                                        <CheckBox Tag="Monday" Content="{core:T win.scheduler.day.mon}" Margin="0,4,12,4"/>
-                                        <CheckBox Tag="Tuesday" Content="{core:T win.scheduler.day.tue}" Margin="0,4,12,4"/>
-                                        <CheckBox Tag="Wednesday" Content="{core:T win.scheduler.day.wed}" Margin="0,4,12,4"/>
-                                        <CheckBox Tag="Thursday" Content="{core:T win.scheduler.day.thu}" Margin="0,4,12,4"/>
-                                        <CheckBox Tag="Friday" Content="{core:T win.scheduler.day.fri}" Margin="0,4,12,4"/>
+                                        <CheckBox Tag="Saturday" Content="{core:T win.scheduler.day.sat}" Margin="0,4,12,4" Click="QueueOptionChanged_Click"/>
+                                        <CheckBox Tag="Sunday" Content="{core:T win.scheduler.day.sun}" Margin="0,4,12,4" Click="QueueOptionChanged_Click"/>
+                                        <CheckBox Tag="Monday" Content="{core:T win.scheduler.day.mon}" Margin="0,4,12,4" Click="QueueOptionChanged_Click"/>
+                                        <CheckBox Tag="Tuesday" Content="{core:T win.scheduler.day.tue}" Margin="0,4,12,4" Click="QueueOptionChanged_Click"/>
+                                        <CheckBox Tag="Wednesday" Content="{core:T win.scheduler.day.wed}" Margin="0,4,12,4" Click="QueueOptionChanged_Click"/>
+                                        <CheckBox Tag="Thursday" Content="{core:T win.scheduler.day.thu}" Margin="0,4,12,4" Click="QueueOptionChanged_Click"/>
+                                        <CheckBox Tag="Friday" Content="{core:T win.scheduler.day.fri}" Margin="0,4,12,4" Click="QueueOptionChanged_Click"/>
                                     </WrapPanel>
                                     <CheckBox x:Name="RepeatBox" Content="{core:T win.scheduler.repeat_every}" Margin="0,10,0,0" Click="QueueOptionChanged_Click"/>
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBox x:Name="RepeatHoursBox" Width="65" FlowDirection="LeftToRight" LostFocus="QueueControl_LostFocus"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0" IsEnabled="{Binding IsChecked, ElementName=RepeatBox}">
+                                        <TextBox x:Name="RepeatHoursBox" Width="65" FlowDirection="LeftToRight" LostFocus="QueueControl_LostFocus"
+                                                 AutomationProperties.Name="{core:T win.scheduler.hours}"/>
                                         <TextBlock Text="{core:T win.scheduler.hours}" VerticalAlignment="Center" Margin="5,0,12,0"/>
-                                        <TextBox x:Name="RepeatMinutesBox" Width="65" FlowDirection="LeftToRight" LostFocus="QueueControl_LostFocus"/>
+                                        <TextBox x:Name="RepeatMinutesBox" Width="65" FlowDirection="LeftToRight" LostFocus="QueueControl_LostFocus"
+                                                 AutomationProperties.Name="{core:T win.scheduler.minutes}"/>
                                         <TextBlock Text="{core:T win.scheduler.minutes}" VerticalAlignment="Center" Margin="5,0,0,0"/>
                                     </StackPanel>
                                     <CheckBox x:Name="StopBox" Content="{core:T win.scheduler.stop_at}" Margin="0,10,0,0" Click="QueueOptionChanged_Click"/>
-                                    <TextBox x:Name="StopTimeBox" Width="100" HorizontalAlignment="Left" FlowDirection="LeftToRight" LostFocus="QueueControl_LostFocus"/>
+                                    <TextBox x:Name="StopTimeBox" Width="100" HorizontalAlignment="Left" FlowDirection="LeftToRight" Margin="0,4,0,8"
+                                             IsEnabled="{Binding IsChecked, ElementName=StopBox}"
+                                             TextChanged="TimeBox_TextChanged" LostFocus="QueueControl_LostFocus"
+                                             AutomationProperties.Name="{core:T win.scheduler.stop_at}"/>
                                     <CheckBox x:Name="StartupBox" Content="{core:T win.scheduler.start_on_startup}" Click="QueueOptionChanged_Click"/>
                                     <TextBlock Text="{core:T win.scheduler.retries_per_file}" Style="{StaticResource Label}" Margin="0,10,0,0"/>
-                                    <TextBox x:Name="RetriesBox" Width="80" HorizontalAlignment="Left" FlowDirection="LeftToRight" LostFocus="QueueControl_LostFocus"/>
-                                    <DockPanel Margin="0,10,0,0">
-                                        <Button DockPanel.Dock="Left" Content="{core:T win.scheduler.browse}" Padding="12,5" Click="BrowseOpen_Click"/>
-                                        <TextBox x:Name="OpenWhenDoneBox" FlowDirection="LeftToRight" LostFocus="QueueControl_LostFocus"/>
+                                    <TextBox x:Name="RetriesBox" Width="80" HorizontalAlignment="Left" FlowDirection="LeftToRight" LostFocus="QueueControl_LostFocus"
+                                             AutomationProperties.Name="{core:T win.scheduler.retries_per_file}"/>
+                                    <TextBlock Text="{core:T win.scheduler.browse_open_title}" Style="{StaticResource Label}" Margin="0,10,0,0"/>
+                                    <DockPanel Margin="0,2,0,0">
+                                        <Button DockPanel.Dock="Right" Content="{core:T win.scheduler.browse}" Padding="12,5" Margin="8,0,0,0" Click="BrowseOpen_Click"/>
+                                        <TextBox x:Name="OpenWhenDoneBox" FlowDirection="LeftToRight" LostFocus="QueueControl_LostFocus"
+                                                 AutomationProperties.Name="{core:T win.scheduler.browse_open_title}"/>
                                     </DockPanel>
                                     <CheckBox x:Name="ExitBox" Content="{core:T win.scheduler.exit_when_done}" Click="QueueOptionChanged_Click"/>
                                     <CheckBox x:Name="ShutdownBox" Content="{core:T win.scheduler.shutdown_when_done}" Click="QueueOptionChanged_Click"/>
@@ -115,17 +125,32 @@
                                 </StackPanel>
                                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                                     <TextBlock Text="{core:T win.scheduler.download_prefix}" VerticalAlignment="Center"/>
-                                    <TextBox x:Name="MaxSimultaneousBox" Width="50" Margin="6,0" FlowDirection="LeftToRight" TextChanged="MaxSimultaneous_TextChanged"/>
+                                    <TextBox x:Name="MaxSimultaneousBox" Width="50" Margin="6,0" FlowDirection="LeftToRight" TextChanged="MaxSimultaneous_TextChanged"
+                                             AutomationProperties.Name="{core:T win.scheduler.files_at_once}"/>
                                     <TextBlock Text="{core:T win.scheduler.files_at_once}" VerticalAlignment="Center"/>
                                 </StackPanel>
-                                <DataGrid x:Name="QueueItemsGrid" AutoGenerateColumns="False" IsReadOnly="True"
-                                          SelectionMode="Single" HeadersVisibility="Column">
-                                    <DataGrid.Columns>
-                                        <DataGridTextColumn Header="{core:T win.scheduler.col.file}" Binding="{Binding FileName}" Width="*"/>
-                                        <DataGridTextColumn Header="{core:T win.scheduler.col.size}" Binding="{Binding SizeText}" Width="110"/>
-                                        <DataGridTextColumn Header="{core:T win.scheduler.col.status}" Binding="{Binding StatusText}" Width="130"/>
-                                    </DataGrid.Columns>
-                                </DataGrid>
+                                <Grid>
+                                    <DataGrid x:Name="QueueItemsGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                              SelectionMode="Single" HeadersVisibility="Column"
+                                              AutomationProperties.Name="{core:T win.scheduler.tab.files}">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="{core:T win.scheduler.col.file}" Binding="{Binding FileName}" Width="*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                                        <Setter Property="FlowDirection" Value="{Binding FileName, Converter={StaticResource TextDir}}"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="{core:T win.scheduler.col.size}" Binding="{Binding SizeText}" Width="110"/>
+                                            <DataGridTextColumn Header="{core:T win.scheduler.col.status}" Binding="{Binding StatusText}" Width="130"/>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                    <TextBlock x:Name="QueueEmptyText" Text="{core:T win.scheduler.empty_queue}"
+                                               Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               IsHitTestVisible="False" Visibility="Collapsed"/>
+                                </Grid>
                             </DockPanel>
                         </TabItem>
                     </TabControl>

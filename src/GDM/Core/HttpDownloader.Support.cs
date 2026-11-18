@@ -11,6 +11,8 @@ public sealed class DownloadException(string message, FailKind kind = FailKind.G
     public FailKind Kind { get; } = kind;
     public bool Retryable => Kind is FailKind.Retryable or FailKind.Rejected;
     public TimeSpan? RetryAfter { get; init; }
+    public int StatusCode { get; init; }
+    public bool NonFallback { get; init; }
 
     public DownloadException(string message, bool retryable) : this(message, retryable ? FailKind.Retryable : FailKind.General) { }
 }
@@ -47,22 +49,65 @@ public sealed class SpeedLimiter
 /// <summary>Caps simultaneous connections per host across all downloads (IDM "max connections for a server").</summary>
 public static class HostGate
 {
-    sealed class Gate { public int Limit; public int InUse; public readonly SemaphoreSlim Signal = new(0); }
+    sealed class Gate
+    {
+        public int Limit;
+        public int InUse;
+        public readonly Queue<TaskCompletionSource<bool>> Waiters = new();
+    }
+
     static readonly Dictionary<string, Gate> Gates = new(StringComparer.OrdinalIgnoreCase);
+
+    static void WakeEligible(Gate g)
+    {
+        int available = Math.Max(0, g.Limit - g.InUse);
+        int woken = 0;
+        while (woken < available && g.Waiters.TryDequeue(out var w))
+        {
+            if (w.TrySetResult(true)) woken++;
+        }
+    }
 
     public static async Task<IDisposable> AcquireAsync(string host, int? limit, CancellationToken ct)
     {
         if (limit is null or <= 0) return Nothing.Instance;
         while (true)
         {
+            ct.ThrowIfCancellationRequested();
+            TaskCompletionSource<bool> waiter;
             Gate g;
             lock (Gates)
             {
                 if (!Gates.TryGetValue(host, out g!)) Gates[host] = g = new Gate();
                 g.Limit = limit.Value;
-                if (g.InUse < g.Limit) { g.InUse++; return new Release(g); }
+                if (g.InUse < g.Limit)
+                {
+                    g.InUse++;
+                    WakeEligible(g);
+                    return new Release(g);
+                }
+                waiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                g.Waiters.Enqueue(waiter);
             }
-            await g.Signal.WaitAsync(TimeSpan.FromMilliseconds(500), ct).ConfigureAwait(false);
+
+            await using (ct.Register(() => waiter.TrySetCanceled(ct)))
+            {
+                try
+                {
+                    await waiter.Task.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    lock (Gates) WakeEligible(g);
+                    throw;
+                }
+            }
+
+            if (ct.IsCancellationRequested)
+            {
+                lock (Gates) WakeEligible(g);
+                ct.ThrowIfCancellationRequested();
+            }
         }
     }
 
@@ -72,8 +117,11 @@ public static class HostGate
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _done, 1) == 1) return;
-            lock (Gates) g.InUse--;
-            g.Signal.Release();
+            lock (Gates)
+            {
+                g.InUse = Math.Max(0, g.InUse - 1);
+                WakeEligible(g);
+            }
         }
     }
 
@@ -148,10 +196,17 @@ public static class MarkOfTheWeb
         }
         if (Uri.TryCreate(hostUrl, UriKind.Absolute, out var h))
         {
-            if (h.Scheme == Uri.UriSchemeHttp || h.Scheme == Uri.UriSchemeHttps || h.Scheme == Uri.UriSchemeFtp)
-                sb.Append("HostUrl=").Append(h.GetLeftPart(UriPartial.Path)).Append("\r\n");
+            if (h.Scheme == Uri.UriSchemeHttp || h.Scheme == Uri.UriSchemeHttps || h.Scheme == Uri.UriSchemeFtp
+                || string.Equals(h.Scheme, "ftps", StringComparison.OrdinalIgnoreCase))
+            {
+                // An ftp://user:password@host address must not leave its password in the file's zone stream.
+                var clean = string.IsNullOrEmpty(h.UserInfo) ? h : new UriBuilder(h) { UserName = "", Password = "" }.Uri;
+                sb.Append("HostUrl=").Append(clean.GetLeftPart(UriPartial.Path)).Append("\r\n");
+            }
             else if (string.Equals(h.Scheme, "magnet", StringComparison.OrdinalIgnoreCase))
                 sb.Append("HostUrl=magnet:\r\n");
+            else if (string.Equals(h.Scheme, "data", StringComparison.OrdinalIgnoreCase))
+                sb.Append("HostUrl=about:internet\r\n");
         }
         return sb.ToString();
     }

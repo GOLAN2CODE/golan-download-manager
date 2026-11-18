@@ -40,6 +40,8 @@
     <SolidColorBrush x:Key="WarningSoft" Color="#2D2310"/>
     <SolidColorBrush x:Key="WarningInk" Color="#FDE68A"/>
     <SolidColorBrush x:Key="Danger" Color="#F87171"/>
+    <SolidColorBrush x:Key="DangerHover" Color="#FCA5A5"/>
+    <SolidColorBrush x:Key="DangerPressed" Color="#EF4444"/>
     <SolidColorBrush x:Key="OnDanger" Color="#131313"/>
     <SolidColorBrush x:Key="DangerSoft" Color="#2D1619"/>
     <SolidColorBrush x:Key="DangerBorder" Color="#5C242B"/>

@@ -2,8 +2,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:core="clr-namespace:Golan.Gdm.Core"
         xmlns:vb="clr-namespace:Golan.Gdm.Core"
-        Title="{core:T main.props.title}" Width="620"
+        Title="{core:T main.props.title}" Width="620" MaxHeight="720"
         SizeToContent="Height" WindowStartupLocation="CenterOwner" Style="{StaticResource GdmWindow}" Icon="/Assets/gdm.ico">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid Margin="24">
         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
@@ -22,20 +23,21 @@
         <TextBlock x:Name="SizeText" Grid.Row="4" Grid.Column="1" Margin="0,2,0,4"/>
         <TextBlock Text="{core:T main.props.saveTo}" Style="{StaticResource Label}" Grid.Row="5" VerticalAlignment="Center" Margin="0,2,12,8"/>
         <DockPanel Grid.Row="5" Grid.Column="1" Margin="0,2,0,8">
-            <Button x:Name="BrowseButton" Content="{core:T main.props.moveBtn}" DockPanel.Dock="Left" Click="Browse_Click" Margin="8,0,0,0"/>
+            <Button x:Name="BrowseButton" Content="{core:T main.props.moveBtn}" DockPanel.Dock="Right" Click="Browse_Click" Margin="8,0,0,0"/>
             <TextBox x:Name="FolderBox" FlowDirection="LeftToRight" AutomationProperties.Name="{core:T main.props.saveTo}"/>
         </DockPanel>
         <TextBlock Text="{core:T main.props.address}" Style="{StaticResource Label}" Grid.Row="6" VerticalAlignment="Center" Margin="0,0,12,6"/>
-        <TextBox x:Name="UrlBox" Grid.Row="6" Grid.Column="1" FlowDirection="LeftToRight" TextWrapping="Wrap" MaxHeight="55" Margin="0,0,0,6"/>
+        <TextBox x:Name="UrlBox" Grid.Row="6" Grid.Column="1" FlowDirection="LeftToRight" TextWrapping="Wrap" MaxHeight="55" Margin="0,0,0,6" AutomationProperties.Name="{core:T main.props.address}"/>
         <TextBlock Text="{core:T main.props.description}" Style="{StaticResource Label}" Grid.Row="7" VerticalAlignment="Center" Margin="0,0,12,6"/>
-        <TextBox x:Name="DescriptionBox" Grid.Row="7" Grid.Column="1" TextWrapping="Wrap" MaxHeight="55" Margin="0,0,0,6"/>
+        <TextBox x:Name="DescriptionBox" Grid.Row="7" Grid.Column="1" TextWrapping="Wrap" MaxHeight="55" Margin="0,0,0,6" AutomationProperties.Name="{core:T main.props.description}"/>
         <TextBlock Text="{core:T main.props.referrer}" Style="{StaticResource Label}" Grid.Row="8" VerticalAlignment="Center" Margin="0,0,12,6"/>
-        <TextBox x:Name="ReferrerText" Grid.Row="8" Grid.Column="1" FlowDirection="LeftToRight" TextWrapping="Wrap" MaxHeight="55" Margin="0,0,0,6"/>
+        <TextBox x:Name="ReferrerText" Grid.Row="8" Grid.Column="1" FlowDirection="LeftToRight" TextWrapping="Wrap" MaxHeight="55" Margin="0,0,0,6" AutomationProperties.Name="{core:T main.props.referrer}"/>
         <TextBlock Text="{core:T main.props.parentPage}" Style="{StaticResource Label}" Grid.Row="9" Margin="0,2,12,6"/>
         <TextBlock x:Name="ParentText" Grid.Row="9" Grid.Column="1" FlowDirection="LeftToRight" TextWrapping="Wrap" Margin="0,2,0,6"/>
         <TextBlock Text="{core:T main.props.login}" Style="{StaticResource Label}" Grid.Row="10" VerticalAlignment="Center" Margin="0,0,12,6"/>
         <StackPanel Grid.Row="10" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
-            <TextBox x:Name="LoginBox" Width="190"/><PasswordBox x:Name="PasswordBox" Width="190" Margin="8,0,0,0"/>
+            <TextBox x:Name="LoginBox" Width="190" FlowDirection="LeftToRight" AutomationProperties.Name="{core:T main.props.login}"/>
+            <PasswordBox x:Name="PasswordBox" Width="190" Margin="8,0,0,0" FlowDirection="LeftToRight" AutomationProperties.Name="{core:T win.batchpattern.password_tag}"/>
         </StackPanel>
         <TextBlock Text="{core:T main.props.added}" Style="{StaticResource Label}" Grid.Row="11" Margin="0,2,12,4"/>
         <TextBlock x:Name="AddedText" Grid.Row="11" Grid.Column="1" Margin="0,2,0,4"/>
@@ -47,7 +49,7 @@
         <TextBlock x:Name="ResultText" Grid.Row="14" Grid.Column="1" TextWrapping="Wrap" Margin="0,2,0,4"/>
         <TextBlock Text="{core:T main.props.queue}" Style="{StaticResource Label}" Grid.Row="15" VerticalAlignment="Center" Margin="0,2,12,6"/>
         <DockPanel Grid.Row="15" Grid.Column="1" Margin="0,2,0,6">
-            <Button x:Name="OpenButton" Content="{core:T main.props.openBtn}" Click="Open_Click" DockPanel.Dock="Left" Margin="8,0,0,0"/>
+            <Button x:Name="OpenButton" Content="{core:T main.props.openBtn}" Click="Open_Click" DockPanel.Dock="Right" Margin="8,0,0,0"/>
             <TextBlock x:Name="QueueText" VerticalAlignment="Center"/>
         </DockPanel>
         <TextBlock Text="{vb:T win.props.expected_hash}" Style="{StaticResource Label}" Grid.Row="16" VerticalAlignment="Center" Margin="0,2,12,4"/>
@@ -55,7 +57,8 @@
         <CheckBox x:Name="AutoExtractCheck" Content="{vb:T win.props.auto_extract}" IsThreeState="True" Grid.Row="17" Grid.Column="1" Margin="0,4,0,4"/>
         <StackPanel Grid.Row="18" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,20,0,0">
             <Button Content="{core:T main.dialog.ok}" Style="{StaticResource Primary}" IsDefault="True" Click="Ok_Click" MinWidth="90"/>
-            <Button Content="{core:T main.dialog.cancel}" IsCancel="True" Margin="8,0,0,0" MinWidth="80"/>
+            <Button Content="{core:T main.dialog.cancel}" IsCancel="True" Click="Cancel_Click" Margin="8,0,0,0" MinWidth="80"/>
         </StackPanel>
     </Grid>
+    </ScrollViewer>
 </Window>

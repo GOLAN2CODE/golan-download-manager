@@ -28,6 +28,7 @@ public sealed class SpeedGraph : FrameworkElement
         FlowDirection = FlowDirection.LeftToRight;
         SnapsToDevicePixels = true;
         UseLayoutRounding = true;
+        System.Windows.Automation.AutomationProperties.SetName(this, Loc.T("stats.graph.title"));
     }
 
     public SpeedHistory History
@@ -55,6 +56,9 @@ public sealed class SpeedGraph : FrameworkElement
 
         _lastRedrawTicks = now;
         _samples = _history.Snapshot();
+        var title = Loc.T("stats.graph.title");
+        if (!string.Equals(System.Windows.Automation.AutomationProperties.GetName(this), title, StringComparison.Ordinal))
+            System.Windows.Automation.AutomationProperties.SetName(this, title);
         InvalidateVisual();
     }
 
@@ -106,7 +110,7 @@ public sealed class SpeedGraph : FrameworkElement
         long peak = 0;
         for (int i = 0; i < _samples.Length; i++)
             if (_samples[i] > peak) peak = _samples[i];
-        long current = _samples.Length > 0 ? _samples[^1] : 0;
+        long current = _samples.Length > 0 ? Math.Max(0, _samples[^1]) : 0;
         double scaleMax = Math.Max(64 * 1024.0, peak * 1.15);
 
         // Horizontal grid lines (top, middle, bottom)
@@ -119,20 +123,34 @@ public sealed class SpeedGraph : FrameworkElement
         if (dpi <= 0) dpi = 1.0;
 
         // Header text (title + current + peak)
-        var curStr = current > 0 ? Fmt.Speed(current) : Loc.T($"stats.graph.idle");
+        var curStr = current > 0 ? Fmt.Speed(current) : Loc.T("stats.graph.idle");
         var peakStr = peak > 0 ? Fmt.Speed(peak) : "0 " + Loc.T("core.unit.b") + Loc.T("core.unit.per_sec");
-        var headerStr = $"{Loc.T($"stats.graph.title")}   ·   {Loc.T($"stats.graph.current", curStr)}   ·   {Loc.T($"stats.graph.peak", peakStr)}";
+        var headerStr = $"{Loc.T("stats.graph.title")}   ·   {Loc.T("stats.graph.current", curStr)}   ·   {Loc.T("stats.graph.peak", peakStr)}";
+        bool rtlHeader = Loc.IsRtl;
         var headerText = new FormattedText(
             headerStr,
-            CultureInfo.InvariantCulture,
+            Loc.Culture,
+            // The control itself is always left-to-right; an RTL FormattedText would be laid out off-screen here.
+            // Arabic still shapes and orders correctly through bidi, it only needs right alignment.
             FlowDirection.LeftToRight,
             GraphTypeface,
             11.5,
             mutedBrush,
-            dpi);
+            dpi)
+        {
+            // In Arabic the header is right-aligned, so it must end before the axis labels on the right.
+            MaxTextWidth = Math.Max(20, w - padLeft - (rtlHeader ? padRight : padLeft)),
+            MaxLineCount = 1,
+            Trimming = TextTrimming.CharacterEllipsis,
+            TextAlignment = rtlHeader ? TextAlignment.Right : TextAlignment.Left
+        };
+        // Same digits as the rest of the program (0-9): the Arabic-Indic zero reads as a dot at this size.
+        headerText.SetNumberSubstitution(new NumberSubstitution(
+            NumberCultureSource.Override, System.Globalization.CultureInfo.GetCultureInfo("en-US"), NumberSubstitutionMethod.European));
         dc.DrawText(headerText, new Point(padLeft, 4));
 
         // Y-axis labels on the right using Fmt.Speed
+        double axisMaxWidth = Math.Max(16, padRight - 10);
         var topAxisLabel = new FormattedText(
             Fmt.Speed(scaleMax),
             CultureInfo.InvariantCulture,
@@ -140,7 +158,12 @@ public sealed class SpeedGraph : FrameworkElement
             GraphTypeface,
             10.5,
             mutedBrush,
-            dpi);
+            dpi)
+        {
+            MaxTextWidth = axisMaxWidth,
+            MaxLineCount = 1,
+            Trimming = TextTrimming.CharacterEllipsis
+        };
         var midAxisLabel = new FormattedText(
             Fmt.Speed(scaleMax * 0.5),
             CultureInfo.InvariantCulture,
@@ -148,7 +171,12 @@ public sealed class SpeedGraph : FrameworkElement
             GraphTypeface,
             10.5,
             mutedBrush,
-            dpi);
+            dpi)
+        {
+            MaxTextWidth = axisMaxWidth,
+            MaxLineCount = 1,
+            Trimming = TextTrimming.CharacterEllipsis
+        };
         dc.DrawText(topAxisLabel, new Point(plotRect.Right + 6, plotRect.Top - 5));
         dc.DrawText(midAxisLabel, new Point(plotRect.Right + 6, midY - 5));
 
@@ -162,7 +190,8 @@ public sealed class SpeedGraph : FrameworkElement
         {
             double xRatio = (offset + i) / (double)(cap - 1);
             double x = plotRect.Left + xRatio * plotW;
-            double yRatio = Math.Clamp(_samples[i] / scaleMax, 0.0, 1.0);
+            double sampleVal = Math.Max(0, _samples[i]);
+            double yRatio = Math.Clamp(sampleVal / scaleMax, 0.0, 1.0);
             double y = plotRect.Bottom - yRatio * plotH;
             return new Point(x, y);
         }

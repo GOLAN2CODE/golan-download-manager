@@ -284,7 +284,8 @@ public sealed class SiteGrabber(GrabberProject p)
         if (!type.Contains("html") && !type.Contains("xml")) return "";
         const int maxBytes = 8 * 1024 * 1024;
         if (resp.Content.Headers.ContentLength > maxBytes) return "";
-        await using var s = await resp.Content.ReadAsStreamAsync(timeout.Token);
+        var rawStream = await resp.Content.ReadAsStreamAsync(timeout.Token);
+        await using var s = HttpDownloader.WrapDecompressionStream(rawStream, resp, decompressGzipTargets: true);
         using var ms = new MemoryStream();
         var buf = new byte[16384];
         int total = 0;

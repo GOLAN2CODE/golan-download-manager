@@ -21,7 +21,19 @@
     "message": "Golan is not running"
   },
   "popupOfflineBanner": {
-    "message": "Golan is not running — start the application and try again."
+    "message": "Golan is not running — open Golan Download Manager and click Retry."
+  },
+  "popupOfflineHelp": {
+    "message": "Start Golan from the Start Menu or Desktop. If it is already open, enable Browser Integration in Options."
+  },
+  "btnRetry": {
+    "message": "Retry"
+  },
+  "toastConnected": {
+    "message": "Connected to Golan ✓"
+  },
+  "errDeclinedByGdm": {
+    "message": "Golan skipped this download — check activation or exception settings in Golan."
   },
   "popupInterceptTitle": {
     "message": "Capture downloads from browser"
@@ -148,5 +160,8 @@
   },
   "panelSent": {
     "message": "Sent to Golan"
+  },
+  "errDrmProtected": {
+    "message": "This video is DRM-protected and cannot be downloaded."
   }
 }

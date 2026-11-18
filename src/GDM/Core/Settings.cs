@@ -338,6 +338,12 @@ public sealed partial class AppSettings
     /// <summary>True until the first-run welcome dialog has been shown.</summary>
     public bool FirstRun { get; set; } = true;
 
+    /// <summary>True once the first-run automatic browser extension offer has been shown.</summary>
+    public bool ExtensionOfferShown { get; set; }
+
+    /// <summary>User's choice on the first-run automatic extension offer: "" (not asked), "install", or "later".</summary>
+    public string ExtensionOfferChoice { get; set; } = "";
+
     // ---- legacy v1 fields (read once, then migrated) ----
     /// <summary>Legacy v1 simultaneous download limit; migrated into <see cref="MainQueue"/> by <see cref="Normalize"/>.</summary>
     public int? MaxSimultaneous { get; set; }

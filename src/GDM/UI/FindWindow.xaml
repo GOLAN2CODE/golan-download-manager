@@ -6,7 +6,8 @@
         WindowStartupLocation="CenterOwner" Style="{StaticResource GdmWindow}" Icon="/Assets/gdm.ico">
     <StackPanel Margin="20">
         <TextBlock Text="{core:T win.find.header}" FontSize="18" FontWeight="SemiBold"/>
-        <TextBox x:Name="QueryBox" Margin="0,14,0,10" Tag="{core:T win.find.query_tag}"/>
+        <TextBox x:Name="QueryBox" Margin="0,14,0,10" Tag="{core:T win.find.query_tag}"
+                 AutomationProperties.Name="{core:T win.find.header}"/>
         <TextBlock Text="{core:T win.find.search_in}" Style="{StaticResource Label}"/>
         <WrapPanel>
             <CheckBox x:Name="NameBox" Content="{core:T win.find.in_name}" IsChecked="True"/>
@@ -15,9 +16,10 @@
         </WrapPanel>
         <CheckBox x:Name="CaseBox" Content="{core:T win.find.match_case}"/>
         <CheckBox x:Name="WholeBox" Content="{core:T win.find.whole_string}"/>
+        <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,14,0,0">
             <Button Content="{core:T win.find.find_btn}" Style="{StaticResource Primary}" IsDefault="True" Click="Find_Click"/>
-            <Button Content="{core:T win.find.cancel}" IsCancel="True" Margin="8,0,0,0"/>
+            <Button Content="{core:T win.find.cancel}" IsCancel="True" Click="Cancel_Click" Margin="8,0,0,0"/>
         </StackPanel>
     </StackPanel>
 </Window>

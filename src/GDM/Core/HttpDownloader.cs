@@ -30,7 +30,17 @@ public sealed partial class HttpDownloader
     /// <summary>Current options (proxy, logins, limits). Set by <see cref="Configure"/>.</summary>
     public static AppSettings Options { get; private set; } = new();
 
-    public static HttpClient Client { get; private set; } = Build(new AppSettings { ProxyMode = "system" });
+    public static System.Net.Http.HttpClient Client { get; private set; } = Build(new AppSettings { ProxyMode = "system" });
+
+    /// <summary>Optional invoker override for host sharing-link resolvers (used by offline tests).</summary>
+    public static HttpMessageInvoker? ResolverInvoker { get; set; }
+
+    public static void SetClientForTests(System.Net.Http.HttpClient client) => Client = client;
+
+    static HttpDownloader()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
 
     readonly DownloadItem _item;
     readonly SpeedLimiter _limiter;
@@ -38,6 +48,8 @@ public sealed partial class HttpDownloader
     readonly object _reResolveLock = new();
     Task? _reResolveTask;
     string? _reResolvedUrl;
+    string? _lastUnchangedResolvedUrl;
+    bool _delegatedToStream;
 
     public HttpDownloader(DownloadItem item, SpeedLimiter limiter)
     {
@@ -62,10 +74,16 @@ public sealed partial class HttpDownloader
             uri.Port == start.Port &&
             (origUri.Scheme != Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttps) &&
             (start.Scheme != Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttps);
+        bool allowReferrer =
+            (origUri.Scheme != Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttps) &&
+            (start.Scheme != Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttps);
 
         for (int hop = 0; ; hop++)
         {
-            using var req = NewRequest(uri, ctx, sameHostAndSecure);
+            bool allowCookies = sameHostAndSecure ||
+                (allowReferrer && uri.Scheme == Uri.UriSchemeHttps &&
+                 ctx.CookieHost.Length > 0 && uri.Host.Equals(ctx.CookieHost, StringComparison.OrdinalIgnoreCase));
+            using var req = NewRequest(uri, ctx, sameHostAndSecure, allowReferrer, allowCookies);
             if (range != null) req.Headers.Range = range;
             if (!string.IsNullOrEmpty(ifRange)) req.Headers.TryAddWithoutValidation("If-Range", ifRange);
 
@@ -106,7 +124,7 @@ public sealed partial class HttpDownloader
                         throw new DownloadException(Loc.T("core.http.err_redirect_invalid"));
                     bool wasHttps = uri.Scheme == Uri.UriSchemeHttps || origUri.Scheme == Uri.UriSchemeHttps || start.Scheme == Uri.UriSchemeHttps;
                     bool downgrade = wasHttps && next.Scheme != Uri.UriSchemeHttps;
-                    if (downgrade && CarriesSecrets(ctx, origUri))
+                    if (downgrade && (CarriesSecrets(ctx, origUri) || (uri.Scheme == Uri.UriSchemeHttps && !string.IsNullOrEmpty(ctx.Cookies(uri, true)))))
                         throw new DownloadException(Loc.T("core.http.err_redirect_insecure", next.Host));
                     // Public download mirrors (VideoLAN, SourceForge...) often send https visitors to a plain-http mirror.
                     // It is followed like browsers and IDM do, but no cookie, login or referrer ever goes along.
@@ -118,6 +136,7 @@ public sealed partial class HttpDownloader
                         next.Host.Equals(origUri.Host, StringComparison.OrdinalIgnoreCase) &&
                         next.Port == origUri.Port &&
                         (!wasHttps || next.Scheme == Uri.UriSchemeHttps);
+                    allowReferrer = allowReferrer && !downgrade;
                     uri = next;
                     continue;
                 }
@@ -197,22 +216,28 @@ public sealed partial class HttpDownloader
         return ProbeAsync(item, ct);
     }
 
-    public static async Task<ProbeResult> ProbeAsync(DownloadItem item, CancellationToken ct)
+    static bool ShouldFallbackFromRangeProbe(DownloadException ex)
+        => ex.Kind == FailKind.Mismatch
+        || (ex.Kind != FailKind.Challenge && ex.StatusCode is 400 or 403 or 405 or 416 or 501);
+
+    public static Task<ProbeResult> ProbeAsync(DownloadItem item, CancellationToken ct)
+        => ProbeUriForItemAsync(item, new Uri(item.Url), ct);
+
+    static async Task<ProbeResult> ProbeUriForItemAsync(DownloadItem item, Uri uri, CancellationToken ct)
     {
-        var uri = new Uri(item.Url);
         using var gate = await HostGate.AcquireAsync(uri.Host, Options.ServerLimitFor(uri.Host), ct).ConfigureAwait(false);
         HttpResponseMessage resp;
         try
         {
             resp = await SendProbeWithRetryAsync(uri, ContextFor(item), new RangeHeaderValue(0, 0), ct).ConfigureAwait(false);
         }
-        catch (DownloadException ex) when (ex.Kind == FailKind.Mismatch && !ct.IsCancellationRequested)
+        catch (DownloadException ex) when (ShouldFallbackFromRangeProbe(ex) && !ct.IsCancellationRequested)
         {
             resp = await SendProbeWithRetryAsync(uri, ContextFor(item), null, ct).ConfigureAwait(false);
         }
         using (resp)
         {
-            var probe = ReadProbe(resp, item.Url);
+            var probe = ReadProbe(resp, item.Url, item.NameLocked ? item.FileName : null);
             await DrainProbeAsync(resp, ct).ConfigureAwait(false);
             return probe;
         }
@@ -239,7 +264,15 @@ public sealed partial class HttpDownloader
     /// <summary>For the synchronization queue: true when the remote file changed since the last download.</summary>
     public static async Task<bool> HasChangedAsync(DownloadItem item, CancellationToken ct)
     {
+        if (item.Kind != DownloadKind.Http
+            || FileNames.IsDataUrl(item.Url)
+            || FileNames.IsFtpUrl(item.Url)
+            || StreamDownloader.IsDirectStreamUrl(item.Url)
+            || StreamDownloader.IsDirectStreamUrl(item.ResolvedUrl))
+            return false;
         var p = await ProbeAsync(item, ct).ConfigureAwait(false);
+        if (StreamDownloader.IsStreamMime(p.Mime) || StreamDownloader.IsDirectStreamUrl(p.FinalUri.ToString()))
+            return false;
         if (p.ETag.Length > 0 && item.ETag.Length > 0) return p.ETag != item.ETag;
         if (p.LastModified != null && item.LastModified != null) return p.LastModified != item.LastModified;
         return p.Size > 0 && p.Size != item.TotalSize;
@@ -249,10 +282,57 @@ public sealed partial class HttpDownloader
         => resp.Content.Headers.ContentEncoding.Any(e =>
             !string.IsNullOrWhiteSpace(e) && !string.Equals(e.Trim(), "identity", StringComparison.OrdinalIgnoreCase));
 
-    static ProbeResult ReadProbe(HttpResponseMessage resp, string url)
+    static bool IsOnlyGzipContentEncoding(HttpResponseMessage resp)
+    {
+        bool sawGzip = false;
+        foreach (var raw in resp.Content.Headers.ContentEncoding)
+        {
+            var e = raw?.Trim();
+            if (string.IsNullOrEmpty(e) || e.Equals("identity", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (e.Equals("gzip", StringComparison.OrdinalIgnoreCase) || e.Equals("x-gzip", StringComparison.OrdinalIgnoreCase))
+                sawGzip = true;
+            else
+                return false;
+        }
+        return sawGzip;
+    }
+
+    internal static bool IsGzipTarget(HttpResponseMessage resp, string? url = null, string? targetFileName = null)
+    {
+        var mime = resp.Content.Headers.ContentType?.MediaType;
+        if (!string.IsNullOrEmpty(mime) && (
+            mime.Equals("application/gzip", StringComparison.OrdinalIgnoreCase) ||
+            mime.Equals("application/x-gzip", StringComparison.OrdinalIgnoreCase) ||
+            mime.Equals("application/tgz", StringComparison.OrdinalIgnoreCase) ||
+            mime.Equals("application/x-tgz", StringComparison.OrdinalIgnoreCase) ||
+            mime.Equals("application/x-gtar", StringComparison.OrdinalIgnoreCase) ||
+            mime.Equals("application/x-compressed-tar", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        static bool HasGzipExt(string? n)
+            => !string.IsNullOrWhiteSpace(n) && (
+                n.EndsWith(".gz", StringComparison.OrdinalIgnoreCase) ||
+                n.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase));
+
+        if (HasGzipExt(targetFileName)) return true;
+        if (HasGzipExt(ExtractContentDispositionFileName(resp))) return true;
+        if (resp.RequestMessage?.RequestUri is { } finalUri && HasGzipExt(FileNames.FromUrl(finalUri.ToString())))
+            return true;
+        if (!string.IsNullOrWhiteSpace(url) && HasGzipExt(FileNames.FromUrl(url)))
+            return true;
+        return false;
+    }
+
+    static bool EffectiveHasContentEncoding(HttpResponseMessage resp, string? url = null, string? targetFileName = null)
+        => HasContentEncoding(resp) && !(IsOnlyGzipContentEncoding(resp) && IsGzipTarget(resp, url, targetFileName));
+
+    static ProbeResult ReadProbe(HttpResponseMessage resp, string url, string? targetFileName = null)
     {
         var final = resp.RequestMessage?.RequestUri ?? new Uri(url);
-        bool encoded = HasContentEncoding(resp);
+        bool encoded = EffectiveHasContentEncoding(resp, url, targetFileName);
         var cr = resp.Content.Headers.ContentRange;
         long size;
         bool resumable;
@@ -285,7 +365,7 @@ public sealed partial class HttpDownloader
         return new ProbeResult(final, size, resumable, name, mime, etag, resp.Content.Headers.LastModified);
     }
 
-    static string? ExtractContentDispositionFileName(HttpResponseMessage resp)
+    public static string? ExtractContentDispositionFileName(HttpResponseMessage resp)
     {
         string? fileNameStar = null;
         string? fileName = null;
@@ -359,20 +439,28 @@ public sealed partial class HttpDownloader
         return parts;
     }
 
-    static string DecodeRfc5987FileNameStar(string rawVal)
+    public static string DecodeRfc5987FileNameStar(string rawVal)
     {
         var v = rawVal.Trim().Trim('"');
+        Encoding enc = Encoding.UTF8;
         int firstQuote = v.IndexOf('\'');
         if (firstQuote >= 0)
         {
             int secondQuote = v.IndexOf('\'', firstQuote + 1);
             if (secondQuote >= 0)
             {
+                var charset = v[..firstQuote].Trim();
+                if (!string.IsNullOrEmpty(charset)
+                    && !charset.Equals("utf-8", StringComparison.OrdinalIgnoreCase)
+                    && !charset.Equals("utf8", StringComparison.OrdinalIgnoreCase))
+                {
+                    try { enc = Encoding.GetEncoding(charset); }
+                    catch (ArgumentException) { /* unknown RFC 5987 charset; fall back to UTF-8 */ }
+                }
                 v = v[(secondQuote + 1)..];
             }
         }
-        try { return Uri.UnescapeDataString(v); }
-        catch (UriFormatException) { return v; }
+        return FileNames.UnescapePercentEncoded(v, enc);
     }
 
     static string DecodeQuotedOrTokenFileName(string rawVal)
@@ -403,6 +491,8 @@ public sealed partial class HttpDownloader
     static string? MimeToExt(string mime) => mime switch
     {
         "application/zip" => "zip",
+        "application/gzip" or "application/x-gzip" => "gz",
+        "application/tgz" or "application/x-tgz" => "tgz",
         "application/pdf" => "pdf",
         "video/mp4" => "mp4",
         "video/webm" => "webm",
@@ -423,17 +513,18 @@ public sealed partial class HttpDownloader
         if (resp.IsSuccessStatusCode) return;
         var code = (int)resp.StatusCode;
         if (IsBrowserChallenge(resp))
-            throw new DownloadException(Loc.T("core.http.err_challenge", resp.RequestMessage?.RequestUri?.Host ?? ""), FailKind.Challenge);
+            throw new DownloadException(Loc.T("core.http.err_challenge", resp.RequestMessage?.RequestUri?.Host ?? ""), FailKind.Challenge) { StatusCode = code };
         var retryAfter = resp.Headers.RetryAfter?.Delta ?? (resp.Headers.RetryAfter?.Date is { } d ? d - DateTimeOffset.UtcNow : null);
         throw code switch
         {
-            401 => new DownloadException(Loc.T("core.http.err_401"), FailKind.Expired),
-            403 or 410 => new DownloadException(Loc.T("core.http.err_auth", code), FailKind.Expired),
-            404 => new DownloadException(Loc.T("core.http.err_404")),
-            416 => new DownloadException(Loc.T("core.http.err_416"), FailKind.Mismatch),
-            429 or 503 => new DownloadException(Loc.T("core.http.err_busy", code), FailKind.Rejected) { RetryAfter = retryAfter },
-            >= 500 => new DownloadException(Loc.T("core.http.err_server", code), FailKind.Retryable),
-            _ => new DownloadException(Loc.T("core.http.err_status", code, resp.ReasonPhrase ?? "")),
+            401 => new DownloadException(Loc.T("core.http.err_401"), FailKind.Expired) { StatusCode = code },
+            403 or 410 => new DownloadException(Loc.T("core.http.err_auth", code), FailKind.Expired) { StatusCode = code },
+            404 => new DownloadException(Loc.T("core.http.err_404")) { StatusCode = code },
+            416 => new DownloadException(Loc.T("core.http.err_416"), FailKind.Mismatch) { StatusCode = code },
+            429 or 503 => new DownloadException(Loc.T("core.http.err_busy", code), FailKind.Rejected) { RetryAfter = retryAfter, StatusCode = code },
+            501 => new DownloadException(Loc.T("core.http.err_server", code)) { StatusCode = code },
+            >= 500 => new DownloadException(Loc.T("core.http.err_server", code), FailKind.Retryable) { StatusCode = code },
+            _ => new DownloadException(Loc.T("core.http.err_status", code, resp.ReasonPhrase ?? "")) { StatusCode = code },
         };
     }
 
@@ -523,6 +614,7 @@ public sealed partial class HttpDownloader
 
     public async Task RunAsync(CancellationToken ct)
     {
+        _delegatedToStream = false;
         _item.Status = DownloadStatus.Connecting;
         _item.LastTry = DateTime.Now;
         if (_item.ETag.StartsWith("W/", StringComparison.OrdinalIgnoreCase))
@@ -557,7 +649,8 @@ public sealed partial class HttpDownloader
         catch (DownloadException ex) when (ex.Kind == FailKind.Mismatch && !ct.IsCancellationRequested)
         {
             // The file changed on the server (or the server sent another range): start over once.
-            Log.Write($"restart after mismatch: {_item.Url} {ex.Message}");
+            Log.Write($"restart after mismatch: {Log.StripUserInfo(_item.Url)} {ex.Message}");
+            _item.ResolvedUrl = (await TryResolveDirectTargetAsync(ct).ConfigureAwait(false))?.AbsoluteUri;
             bool remoteChanged = ex.Message == Loc.T("core.http.err_remote_changed");
             try
             {
@@ -565,30 +658,60 @@ public sealed partial class HttpDownloader
             }
             catch (DownloadException ex2) when (remoteChanged && ex2.Kind == FailKind.Mismatch && !ct.IsCancellationRequested)
             {
+                _item.ResolvedUrl = (await TryResolveDirectTargetAsync(ct).ConfigureAwait(false))?.AbsoluteUri;
                 await StartFreshAsync(ct, allowRange: false).ConfigureAwait(false);
             }
         }
 
-        await FinishAsync().ConfigureAwait(false);
+        if (!_delegatedToStream)
+            await FinishAsync().ConfigureAwait(false);
     }
 
     async Task StartFreshAsync(CancellationToken ct, bool allowRange = true)
     {
+        var origUri = new Uri(_item.Url);
+        Uri? preResolved = null;
+        if (!string.IsNullOrWhiteSpace(_item.ResolvedUrl)
+            && Uri.TryCreate(_item.ResolvedUrl, UriKind.Absolute, out var pr)
+            && !string.Equals(pr.AbsoluteUri, origUri.AbsoluteUri, StringComparison.Ordinal)
+            && IsAllowedRedirectTarget(origUri, pr))
+        {
+            preResolved = pr;
+        }
+
         _item.ResetProgress();
         _item.ResolvedUrl = null;
         lock (_reResolveLock)
         {
             _reResolveTask = null;
             _reResolvedUrl = null;
+            _lastUnchangedResolvedUrl = null;
         }
 
-        var start = new Uri(_item.Url);
-        var gate = await HostGate.AcquireAsync(start.Host, Options.ServerLimitFor(start.Host), ct).ConfigureAwait(false);
+        bool initialAllowRange = allowRange;
+        bool usingPreResolved = preResolved != null;
+        var start = preResolved ?? origUri;
+        string gateHost = start.Host;
+        var gate = await HostGate.AcquireAsync(gateHost, Options.ServerLimitFor(gateHost), ct).ConfigureAwait(false);
         HttpResponseMessage? resp = null;
+
+        async Task SwitchGateIfNeededAsync(string nextHost)
+        {
+            if (string.Equals(gateHost, nextHost, StringComparison.OrdinalIgnoreCase)) return;
+            gate.Dispose();
+            gateHost = nextHost;
+            gate = await HostGate.AcquireAsync(gateHost, Options.ServerLimitFor(gateHost), ct).ConfigureAwait(false);
+        }
+
         try
         {
             ProbeResult probe;
-            for (int pageTry = 0; ; pageTry++)
+            bool retriedAsTool = false;
+            int htmlHops = 0;
+            string? htmlSuggestedName = null;
+            var visitedHtmlPages = new HashSet<string>(StringComparer.Ordinal) { start.AbsoluteUri };
+
+            while (true)
             {
                 try
                 {
@@ -598,7 +721,7 @@ public sealed partial class HttpDownloader
                         {
                             resp = await SendWithRetryAsync(start, new RangeHeaderValue(0, 0), ct).ConfigureAwait(false);
                         }
-                        catch (DownloadException ex) when (ex.Kind == FailKind.Mismatch && !ct.IsCancellationRequested)
+                        catch (DownloadException ex) when (ShouldFallbackFromRangeProbe(ex) && !ct.IsCancellationRequested)
                         {
                             allowRange = false;
                             resp = await SendWithRetryAsync(start, null, ct).ConfigureAwait(false);
@@ -609,34 +732,112 @@ public sealed partial class HttpDownloader
                         resp = await SendWithRetryAsync(start, null, ct).ConfigureAwait(false);
                     }
                 }
-                catch (DownloadException ex) when (ex.Kind == FailKind.Challenge && pageTry == 0
+                catch (DownloadException ex) when (ex.Kind == FailKind.Challenge && !retriedAsTool
                                                    && !string.Equals(_item.UserAgent, ToolUserAgent, StringComparison.Ordinal) && !ct.IsCancellationRequested)
                 {
                     // Bot protection dislikes a "browser" that is not one; an honest download tool often passes.
                     Log.Write($"{start.Host} wants a browser check: asking again as a download tool");
                     LearnHostLimit(start.Host, 1);
+                    retriedAsTool = true;
+                    _item.UserAgent = ToolUserAgent;
+                    continue;
+                }
+                catch (DownloadException ex) when (usingPreResolved && !ct.IsCancellationRequested)
+                {
+                    Log.Write($"pre-resolved target {start.Host} failed ({ex.Message}); falling back to {_item.Url}");
+                    usingPreResolved = false;
+                    start = origUri;
+                    allowRange = initialAllowRange;
+                    visitedHtmlPages.Add(start.AbsoluteUri);
+                    await SwitchGateIfNeededAsync(start.Host).ConfigureAwait(false);
+                    continue;
+                }
+
+                var targetHint = _item.NameLocked ? _item.FileName : null;
+                probe = ReadProbe(resp, _item.Url, targetHint);
+                var expected = _item.NameLocked && _item.FileName.Length > 0 ? _item.FileName : FileNames.FromUrl(_item.Url);
+                bool intentionalHtml = IsIntentionalWebPageDownload(_item, origUri, usingPreResolved);
+                if (!IsHtmlWebPageMime(probe.Mime) || intentionalHtml)
+                    break;
+
+                if (resp.StatusCode == HttpStatusCode.PartialContent)
+                {
+                    await DrainProbeAsync(resp, ct).ConfigureAwait(false);
+                    resp.Dispose();
+                    resp = null;
+                    resp = await SendWithRetryAsync(probe.FinalUri, null, ct).ConfigureAwait(false);
+                    probe = ReadProbe(resp, _item.Url, targetHint);
+                    if (!IsHtmlWebPageMime(probe.Mime) || intentionalHtml)
+                    {
+                        allowRange = false;
+                        break;
+                    }
+                }
+
+                string html = "";
+                try { html = await ReadBoundedHtmlAsync(resp, ct).ConfigureAwait(false); }
+                catch (Exception) when (!ct.IsCancellationRequested) { /* treat unreadable HTML body as non-confirm page */ }
+                resp.Dispose();
+                resp = null;
+
+                if (htmlHops < MaxHtmlInterstitialHops
+                    && TryExtractHtmlDownloadTarget(html, probe.FinalUri, origUri, out var nextTarget, out var suggestedName)
+                    && nextTarget != null
+                    && visitedHtmlPages.Add(nextTarget.AbsoluteUri))
+                {
+                    htmlHops++;
+                    if (!string.IsNullOrWhiteSpace(suggestedName))
+                        htmlSuggestedName = suggestedName;
+                    start = nextTarget;
+                    allowRange = initialAllowRange;
+                    await SwitchGateIfNeededAsync(start.Host).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (!retriedAsTool && !string.Equals(_item.UserAgent, ToolUserAgent, StringComparison.Ordinal))
+                {
+                    // Mirror sites often show a web page to browsers and hand the file to download tools.
+                    Log.Write($"{start.Host} answered a web page instead of {expected}: asking again as a download tool");
+                    retriedAsTool = true;
                     _item.UserAgent = ToolUserAgent;
                     continue;
                 }
 
-                probe = ReadProbe(resp, _item.Url);
-                var expected = _item.NameLocked && _item.FileName.Length > 0 ? _item.FileName : FileNames.FromUrl(_item.Url);
-                if (!IsPageInsteadOfFile(probe.Mime, expected)) break;
-                resp.Dispose();
-                resp = null;
-                if (pageTry == 0 && !string.Equals(_item.UserAgent, ToolUserAgent, StringComparison.Ordinal))
+                if (usingPreResolved)
                 {
-                    // Mirror sites often show a web page to browsers and hand the file to download tools.
-                    Log.Write($"{start.Host} answered a web page instead of {expected}: asking again as a download tool");
-                    _item.UserAgent = ToolUserAgent;
+                    usingPreResolved = false;
+                    start = origUri;
+                    allowRange = initialAllowRange;
+                    visitedHtmlPages.Add(start.AbsoluteUri);
+                    await SwitchGateIfNeededAsync(start.Host).ConfigureAwait(false);
                     continue;
                 }
-                throw new DownloadException(Loc.T("core.http.err_web_page", start.Host));
+
+                throw new DownloadException(Loc.T("core.http.err_web_page", origUri.Host));
             }
             _item.ResolvedUrl = probe.FinalUri.ToString();
+            if (StreamDownloader.IsStreamMime(probe.Mime) || StreamDownloader.IsDirectStreamUrl(probe.FinalUri.ToString()))
+            {
+                if (resp != null)
+                {
+                    await DrainProbeAsync(resp, ct).ConfigureAwait(false);
+                    resp.Dispose();
+                    resp = null;
+                }
+                gate.Dispose();
+                _delegatedToStream = true;
+                await StreamDownloader.RunAsync(_item, _limiter, ct).ConfigureAwait(false);
+                return;
+            }
             _item.ETag = probe.ETag;
             _item.LastModified = probe.LastModified;
-            if (!_item.NameLocked && probe.FileName != null) _item.FileName = probe.FileName;
+            if (!_item.NameLocked)
+            {
+                var cdName = ExtractContentDispositionFileName(resp);
+                if (!string.IsNullOrEmpty(cdName)) _item.FileName = cdName;
+                else if (!string.IsNullOrWhiteSpace(htmlSuggestedName)) _item.FileName = htmlSuggestedName;
+                else if (probe.FileName != null) _item.FileName = probe.FileName;
+            }
             if (string.IsNullOrEmpty(_item.FileName)) _item.FileName = probe.FileName ?? "download";
 
             // Pick a free name now so we never overwrite an existing file or another download.
@@ -667,7 +868,7 @@ public sealed partial class HttpDownloader
                     await DrainProbeAsync(resp, ct).ConfigureAwait(false);
                     resp.Dispose();
                     resp = await SendWithRetryAsync(new Uri(_item.ResolvedUrl ?? _item.Url), null, ct).ConfigureAwait(false);
-                    var fullProbe = ReadProbe(resp, _item.Url);
+                    var fullProbe = ReadProbe(resp, _item.Url, _item.FileName);
                     EnsureSizeAllowed(_item.TempPath, fullProbe.Size);
                     _item.TotalSize = fullProbe.Size;
                 }
@@ -749,19 +950,164 @@ public sealed partial class HttpDownloader
         await _item.FileLimiter.WaitAsync(n, ct).ConfigureAwait(false);
     }
 
-    static Stream WrapDecompressionStream(Stream raw, HttpResponseMessage resp)
+    internal static Stream WrapDecompressionStream(
+        Stream raw,
+        HttpResponseMessage resp,
+        bool decompressGzipTargets = false,
+        string? url = null,
+        string? targetFileName = null)
     {
         foreach (var enc in resp.Content.Headers.ContentEncoding)
         {
             var e = enc.Trim().ToLowerInvariant();
             if (e is "gzip" or "x-gzip")
+            {
+                if (!decompressGzipTargets && IsOnlyGzipContentEncoding(resp) && IsGzipTarget(resp, url, targetFileName))
+                    return raw;
                 return new GZipStream(raw, CompressionMode.Decompress, leaveOpen: false);
+            }
             if (e == "deflate")
-                return new DeflateStream(raw, CompressionMode.Decompress, leaveOpen: false);
+                return new AutoDeflateStream(raw);
             if (e == "br")
                 return new BrotliStream(raw, CompressionMode.Decompress, leaveOpen: false);
         }
         return raw;
+    }
+
+    sealed class AutoDeflateStream(Stream raw) : Stream
+    {
+        Stream? _decoded;
+
+        static bool IsZlibHeader(byte[] h, int len)
+            => len == 2
+            && (h[0] & 0x0F) == 8
+            && (h[0] >> 4) <= 7
+            && (h[1] & 0x20) == 0
+            && (((h[0] << 8) | h[1]) % 31) == 0;
+
+        async ValueTask<Stream> InitAsync(CancellationToken ct)
+        {
+            var header = new byte[2];
+            int got = 0;
+            while (got < 2)
+            {
+                int r = await raw.ReadAsync(header.AsMemory(got, 2 - got), ct).ConfigureAwait(false);
+                if (r == 0) break;
+                got += r;
+            }
+            var prepended = new PrependStream(raw, header, got);
+            return IsZlibHeader(header, got)
+                ? new ZLibStream(prepended, CompressionMode.Decompress, leaveOpen: false)
+                : new DeflateStream(prepended, CompressionMode.Decompress, leaveOpen: false);
+        }
+
+        Stream InitSync()
+        {
+            var header = new byte[2];
+            int got = 0;
+            while (got < 2)
+            {
+                int r = raw.Read(header, got, 2 - got);
+                if (r == 0) break;
+                got += r;
+            }
+            var prepended = new PrependStream(raw, header, got);
+            return IsZlibHeader(header, got)
+                ? new ZLibStream(prepended, CompressionMode.Decompress, leaveOpen: false)
+                : new DeflateStream(prepended, CompressionMode.Decompress, leaveOpen: false);
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            _decoded ??= InitSync();
+            return _decoded.Read(buffer, offset, count);
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            _decoded ??= await InitAsync(cancellationToken).ConfigureAwait(false);
+            return await _decoded.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (_decoded != null) _decoded.Dispose();
+                else raw.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            if (_decoded != null) await _decoded.DisposeAsync().ConfigureAwait(false);
+            else await raw.DisposeAsync().ConfigureAwait(false);
+            await base.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    sealed class PrependStream(Stream inner, byte[] prefix, int prefixLen) : Stream
+    {
+        int _pos;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (count <= 0) return 0;
+            if (_pos < prefixLen)
+            {
+                int take = Math.Min(count, prefixLen - _pos);
+                Buffer.BlockCopy(prefix, _pos, buffer, offset, take);
+                _pos += take;
+                return take;
+            }
+            return inner.Read(buffer, offset, count);
+        }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (buffer.Length == 0) return ValueTask.FromResult(0);
+            if (_pos < prefixLen)
+            {
+                int take = Math.Min(buffer.Length, prefixLen - _pos);
+                prefix.AsMemory(_pos, take).CopyTo(buffer);
+                _pos += take;
+                return ValueTask.FromResult(take);
+            }
+            return inner.ReadAsync(buffer, cancellationToken);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) inner.Dispose();
+            base.Dispose(disposing);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            await inner.DisposeAsync().ConfigureAwait(false);
+            await base.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
     async Task RunSingleStreamAsync(HttpResponseMessage resp, CancellationToken ct)
@@ -784,7 +1130,7 @@ public sealed partial class HttpDownloader
             using var readTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             await using var fs = new FileStream(_item.TempPath, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite, BufferSize, FileOptions.Asynchronous);
             var rawStream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            await using var stream = WrapDecompressionStream(rawStream, resp);
+            await using var stream = WrapDecompressionStream(rawStream, resp, decompressGzipTargets: false, _item.Url, _item.FileName);
             while (true)
             {
                 int n = await ReadWithTimeoutAsync(stream, buffer, BufferSize, ct, readTimeoutCts).ConfigureAwait(false);
@@ -852,8 +1198,10 @@ public sealed partial class HttpDownloader
                 if (TakeNextSegment(allowSplit: true, minPiece: startPiece) == null) break;
             }
             initial = _item.Segments.Where(s => s.Active).ToList();
+            _activeWorkers = initial.Count;
+            _item.ActiveConnections = _activeWorkers;
         }
-        foreach (var seg in initial) workers.Add(WorkerAsync(seg));
+        foreach (var seg in initial) workers.Add(WorkerAsync(seg, preCounted: true));
 
         await Task.WhenAll(workers).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
@@ -870,7 +1218,7 @@ public sealed partial class HttpDownloader
             lock (_item.SegLock) next = TakeNextSegment(allowSplit: false);
             if (next != null)
             {
-                await WorkerAsync(next).ConfigureAwait(false);
+                await WorkerAsync(next, preCounted: false).ConfigureAwait(false);
                 ct.ThrowIfCancellationRequested();
                 if (fatal != null) throw fatal;
             }
@@ -882,25 +1230,25 @@ public sealed partial class HttpDownloader
                 throw lastDropped as DownloadException ?? new DownloadException(Loc.T("core.http.err_incomplete_segments"), FailKind.Retryable);
         }
 
-        async Task WorkerAsync(Segment? seg)
+        async Task WorkerAsync(Segment? seg, bool preCounted)
         {
-            _item.ActiveConnections = Interlocked.Increment(ref _activeWorkers);
+            bool counted = true;
+            if (!preCounted)
+            {
+                lock (_item.SegLock)
+                {
+                    _activeWorkers++;
+                    _item.ActiveConnections = _activeWorkers;
+                }
+            }
             try
             {
                 while (seg != null)
                 {
-                    try
+                    bool completed = await DownloadSegmentAsync(seg, fileHandle, ex => lastDropped = ex, failCts.Token).ConfigureAwait(false);
+                    if (!completed)
                     {
-                        await DownloadSegmentAsync(seg, fileHandle, failCts.Token).ConfigureAwait(false);
-                    }
-                    catch (DownloadException ex) when (ex.Kind is FailKind.Rejected or FailKind.Challenge && Volatile.Read(ref _activeWorkers) > 1)
-                    {
-                        // The server refuses an extra connection: give this range back and run with fewer connections.
-                        lastDropped = ex;
-                        _serverBusy = true;
-                        // A browser check means "too many requests": from now on this site gets one connection.
-                        LearnHostLimit(CurrentUri.Host, ex.Kind == FailKind.Challenge ? 1 : Volatile.Read(ref _activeWorkers) - 1);
-                        lock (_item.SegLock) { seg.Active = false; seg.Info = Loc.T("core.http.seg_rejected"); }
+                        counted = false;
                         return;
                     }
                     lock (_item.SegLock)
@@ -923,8 +1271,31 @@ public sealed partial class HttpDownloader
             }
             finally
             {
-                _item.ActiveConnections = Math.Max(0, Interlocked.Decrement(ref _activeWorkers));
+                if (counted)
+                {
+                    lock (_item.SegLock)
+                    {
+                        _activeWorkers = Math.Max(0, _activeWorkers - 1);
+                        _item.ActiveConnections = _activeWorkers;
+                    }
+                }
             }
+        }
+    }
+
+    bool TryRetireWorker(out int remainingWorkers)
+    {
+        lock (_item.SegLock)
+        {
+            if (_activeWorkers > 1)
+            {
+                _activeWorkers--;
+                _item.ActiveConnections = _activeWorkers;
+                remainingWorkers = _activeWorkers;
+                return true;
+            }
+            remainingWorkers = _activeWorkers;
+            return false;
         }
     }
 
@@ -945,16 +1316,66 @@ public sealed partial class HttpDownloader
         return created;
     }
 
+    async Task<Uri?> TryResolveDirectTargetAsync(CancellationToken ct)
+    {
+        if (Uri.TryCreate(_item.Url, UriKind.Absolute, out var srcUri)
+            && Resolvers.HostResolvers.All.Any(r => r.CanHandle(srcUri)))
+        {
+            var resolved = await Resolvers.HostResolvers.TryResolveAsync(srcUri, ResolverInvoker, ct).ConfigureAwait(false);
+            if (resolved is { NeedsMegaDecrypt: false } && IsAllowedRedirectTarget(srcUri, resolved.Direct))
+            {
+                if (resolved.Headers.TryGetValue("Cookie", out var resolverCookie)
+                    && !string.IsNullOrWhiteSpace(resolverCookie)
+                    && (string.IsNullOrEmpty(_item.Cookies) || !string.Equals(_item.CookieHost, srcUri.Host, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _item.Cookies = resolverCookie;
+                    _item.CookieHost = resolved.Direct.Host;
+                }
+                return resolved.Direct;
+            }
+        }
+        return null;
+    }
+
     async Task ReResolveAsync(CancellationToken ct)
     {
-        // Presigned/expiring links: ask the original address again for a fresh target.
-        var p = await ProbeAsync(_item, ct).ConfigureAwait(false);
+        // Presigned/expiring links: re-run sharing-link resolver when applicable, then probe for a fresh target.
+        var probeTarget = await TryResolveDirectTargetAsync(ct).ConfigureAwait(false);
+        var p = probeTarget != null
+            ? await ProbeUriForItemAsync(_item, probeTarget, ct).ConfigureAwait(false)
+            : await ProbeAsync(_item, ct).ConfigureAwait(false);
         if (p.Size != _item.TotalSize || (p.ETag.Length > 0 && _item.ETag.Length > 0 && p.ETag != _item.ETag))
             throw new DownloadException(Loc.T("core.http.err_remote_changed"), FailKind.Mismatch);
         _item.ResolvedUrl = p.FinalUri.ToString();
     }
 
-    async Task DownloadSegmentAsync(Segment seg, Microsoft.Win32.SafeHandles.SafeFileHandle fileHandle, CancellationToken ct)
+    async Task RunReResolveOnceAsync(string failedUrl, CancellationToken ct)
+    {
+        try
+        {
+            await ReResolveAsync(ct).ConfigureAwait(false);
+            lock (_reResolveLock)
+            {
+                _lastUnchangedResolvedUrl = string.Equals(CurrentUri.ToString(), failedUrl, StringComparison.Ordinal)
+                    ? failedUrl
+                    : null;
+            }
+        }
+        finally
+        {
+            lock (_reResolveLock)
+            {
+                _reResolveTask = null;
+                _reResolvedUrl = null;
+            }
+        }
+    }
+
+    async Task<bool> DownloadSegmentAsync(
+        Segment seg,
+        Microsoft.Win32.SafeHandles.SafeFileHandle fileHandle,
+        Action<DownloadException> onDropped,
+        CancellationToken ct)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
         try
@@ -967,7 +1388,7 @@ public sealed partial class HttpDownloader
             {
                 lock (_item.SegLock)
                 {
-                    if (seg.Remaining <= 0) return;
+                    if (seg.Remaining <= 0) return true;
                     seg.Info = Loc.T("core.http.seg_connecting");
                 }
 
@@ -978,7 +1399,7 @@ public sealed partial class HttpDownloader
                     long from, to;
                     lock (_item.SegLock)
                     {
-                        if (seg.Remaining <= 0) return;
+                        if (seg.Remaining <= 0) return true;
                         from = seg.Position;
                         to = seg.End;
                     }
@@ -993,7 +1414,7 @@ public sealed partial class HttpDownloader
                             Loc.T(validatorChanged ? "core.http.err_remote_changed" : "core.http.err_no_range"),
                             FailKind.Mismatch);
                     }
-                    if (HasContentEncoding(resp))
+                    if (EffectiveHasContentEncoding(resp, _item.Url, _item.FileName))
                         throw new DownloadException(Loc.T("core.http.err_bad_range"), FailKind.Mismatch);
                     var cr = resp.Content.Headers.ContentRange;
                     if (cr is null || !cr.HasRange || cr.From != from || cr.To != to || cr.Length != _item.TotalSize)
@@ -1021,7 +1442,7 @@ public sealed partial class HttpDownloader
                     {
                         long allowed;
                         lock (_item.SegLock) allowed = seg.Remaining;
-                        if (allowed <= 0) return;
+                        if (allowed <= 0) return true;
 
                         int n = await ReadWithTimeoutAsync(stream, buffer, (int)Math.Min(BufferSize, allowed), ct, readTimeoutCts).ConfigureAwait(false);
                         if (n == 0) break;
@@ -1036,6 +1457,7 @@ public sealed partial class HttpDownloader
                             bytesThisAttempt += use;
                             lock (_item.SegLock) seg.Downloaded += use;
                             _item.AddDownloaded(use);
+                            lock (_reResolveLock) _lastUnchangedResolvedUrl = null;
                             if (bytesThisAttempt >= 8192 && reconnects < maxSegmentReconnects)
                             {
                                 attempt = 0; // substantial progress resets the retry budget within cap
@@ -1043,48 +1465,92 @@ public sealed partial class HttpDownloader
                                 bytesThisAttempt = 0;
                             }
                         }
-                        if (use < n) return; // segment was shortened by a split
+                        if (use < n) return true; // segment was shortened by a split
                     }
 
-                    lock (_item.SegLock) if (seg.Remaining <= 0) return;
+                    lock (_item.SegLock) if (seg.Remaining <= 0) return true;
                     throw new IOException(Loc.T("core.http.err_disconnected"));
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
                 catch (DownloadException ex) when (ex.Kind == FailKind.Expired)
                 {
                     Task? waitTask = null;
+                    bool alreadyRefreshed = false;
+                    var failedUrl = uri.ToString();
                     lock (_reResolveLock)
                     {
-                        if (_reResolveTask == null)
+                        if (!string.Equals(CurrentUri.ToString(), failedUrl, StringComparison.Ordinal))
                         {
-                            _reResolvedUrl = uri.ToString();
-                            _reResolveTask = ReResolveAsync(ct);
+                            if (_reResolveTask is { IsCompleted: false })
+                                waitTask = _reResolveTask;
+                            else
+                                alreadyRefreshed = true;
+                        }
+                        else if (_reResolveTask is { IsCompleted: false })
+                        {
                             waitTask = _reResolveTask;
                         }
-                        else if (string.Equals(_reResolvedUrl, uri.ToString(), StringComparison.Ordinal))
+                        else if (!string.Equals(_lastUnchangedResolvedUrl, failedUrl, StringComparison.Ordinal))
                         {
+                            _reResolvedUrl = failedUrl;
+                            _reResolveTask = RunReResolveOnceAsync(failedUrl, ct);
                             waitTask = _reResolveTask;
                         }
+                    }
+                    if (alreadyRefreshed)
+                    {
+                        last = ex;
+                        continue;
                     }
                     if (waitTask == null) throw;
                     last = ex;
                     await waitTask.ConfigureAwait(false);
                 }
-                catch (DownloadException ex) when (!ex.Retryable || (ex.Kind == FailKind.Rejected && Volatile.Read(ref _activeWorkers) > 1)) { throw; }
-                catch (Exception ex)
+                catch (DownloadException ex) when (ex.Kind is FailKind.Challenge or FailKind.Rejected)
                 {
+                    if (ex.Kind == FailKind.Challenge)
+                    {
+                        _serverBusy = true;
+                        LearnHostLimit(CurrentUri.Host, 1);
+                        if (TryRetireWorker(out _))
+                        {
+                            onDropped(ex);
+                            lock (_item.SegLock) { seg.Active = false; seg.Info = Loc.T("core.http.seg_rejected"); }
+                            return false;
+                        }
+                        throw;
+                    }
+
+                    // FailKind.Rejected (429 / 503): atomically retire extra workers while keeping at least 1 active.
+                    if (TryRetireWorker(out int remaining))
+                    {
+                        _serverBusy = true;
+                        LearnHostLimit(CurrentUri.Host, remaining);
+                        onDropped(ex);
+                        lock (_item.SegLock) { seg.Active = false; seg.Info = Loc.T("core.http.seg_rejected"); }
+                        return false;
+                    }
+
                     last = ex;
-                    if (ex is DownloadException { Kind: FailKind.Rejected } busy && busyRetries < MaxBusyRetries)
+                    if (busyRetries < MaxBusyRetries)
                     {
                         // Only this connection is left and the server says "busy": it is rate limiting, so wait and ask again.
                         busyRetries++;
                         attempt--;
                         _serverBusy = true;
-                        var wait = BusyWait(busyRetries, busy.RetryAfter);
+                        var wait = BusyWait(busyRetries, ex.RetryAfter);
                         lock (_item.SegLock) seg.Info = Loc.T("core.http.seg_busy_wait", (int)Math.Ceiling(wait.TotalSeconds));
                         await Task.Delay(wait, ct).ConfigureAwait(false);
                         continue;
                     }
+                    lock (_item.SegLock) seg.Info = Loc.T("core.http.seg_retrying");
+                    if (attempt == MaxRetries) break;
+                    await Task.Delay(Backoff(attempt, ex.RetryAfter), ct).ConfigureAwait(false);
+                }
+                catch (DownloadException ex) when (!ex.Retryable) { throw; }
+                catch (Exception ex)
+                {
+                    last = ex;
                     lock (_item.SegLock) seg.Info = Loc.T("core.http.seg_retrying");
                     if (attempt == MaxRetries) break;
                     await Task.Delay(Backoff(attempt, (ex as DownloadException)?.RetryAfter), ct).ConfigureAwait(false);

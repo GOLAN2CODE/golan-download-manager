@@ -14,17 +14,29 @@ public partial class VideoWindow : Window
     readonly string _userAgent;
     readonly JsonArray? _cookies;
     readonly IReadOnlyList<DetectedMedia> _media;
+    readonly string _initialUrl;
     readonly string _initialTitle;
+    readonly bool _drmDetected;
+    readonly CancellationTokenSource _windowCts = new();
     CancellationTokenSource? _fetchCts;
     string _cookieFile = "";
     MediaInfo? _info;
+    string? _resolvedStreamUrl;
+    bool _resolvedIsDirectFile;
     readonly List<SubtitleRow> _subtitleRows = [];
     bool _loaded;
+    bool _closing;
     bool _folderEdited;
     bool _updatingFolder;
 
+    bool IsInitialUrl(string url)
+        => _openedWithUrl && string.Equals(url, _initialUrl, StringComparison.OrdinalIgnoreCase);
+
+    IReadOnlyList<DetectedMedia> ActiveMedia(string url) => IsInitialUrl(url) ? _media : [];
+    string ActiveInitialTitle(string url) => IsInitialUrl(url) ? _initialTitle : "";
+
     public VideoWindow(DownloadManager manager, string url, string referrer, string userAgent,
-        JsonArray? cookies, IReadOnlyList<DetectedMedia> media, string title)
+        JsonArray? cookies, IReadOnlyList<DetectedMedia> media, string title, bool drmDetected = false)
     {
         InitializeComponent();
         _manager = manager;
@@ -32,9 +44,11 @@ public partial class VideoWindow : Window
         _userAgent = userAgent;
         _cookies = cookies;
         _media = media;
+        _initialUrl = url.Trim();
         _initialTitle = title;
+        _drmDetected = drmDetected;
         UrlBox.Text = url;
-        _openedWithUrl = !string.IsNullOrWhiteSpace(url);
+        _openedWithUrl = !string.IsNullOrWhiteSpace(_initialUrl);
         SmartModeBox.IsChecked = manager.Settings.VideoSmartMode;
         SetTitle(title);
         LoadExtraDefaults();
@@ -93,14 +107,51 @@ public partial class VideoWindow : Window
         _fetchCts?.Dispose();
         _fetchCts = new CancellationTokenSource();
         var ct = _fetchCts.Token;
+        _info = null;
+        _resolvedStreamUrl = null;
+        _resolvedIsDirectFile = false;
+        ResultCard.Visibility = Visibility.Collapsed;
+        ContentPanel.Visibility = Visibility.Collapsed;
+        DirectExpander.Visibility = Visibility.Collapsed;
+        ToolCard.Visibility = Visibility.Collapsed;
+        DownloadButton.IsEnabled = QueueButton.IsEnabled = false;
+        LoadingCard.Visibility = Visibility.Collapsed; // a fetch cancelled just above must not leave its spinner next to an error
+
+        if (DrmDetector.IsKnownDrmPlatform(url)
+            || (_drmDetected && (IsInitialUrl(url) || (!string.IsNullOrWhiteSpace(_referrer) && string.Equals(url, _referrer, StringComparison.OrdinalIgnoreCase)))))
+        {
+            ShowError(Loc.T("core.media.err_drm"), suppressDirectFallback: true);
+            return;
+        }
+
+        var activeMedia = ActiveMedia(url);
         SetBusy(true);
         ErrorCard.Visibility = Visibility.Collapsed;
+        UpdateToolButton.Visibility = Visibility.Collapsed;
         DirectHint.Visibility = Visibility.Collapsed;
         LoadingCard.Visibility = Visibility.Collapsed;
         try
         {
             MediaDownloader.TryDelete(_cookieFile);
             _cookieFile = MediaDownloader.WriteCookieFile(FilterCookiesForUrl(url));
+
+            bool preferSniffedMedia = !MediaDownloader.LooksLikeMediaPage(url) && activeMedia.Count > 0;
+            if (preferSniffedMedia && await TryInspectSniffedMediaAsync(url, ct) is { } sniffedFirst)
+            {
+                _info = sniffedFirst;
+                ShowInfo();
+                TrySmartStart();
+                return;
+            }
+
+            if (StreamDownloader.IsDirectStreamUrl(url))
+            {
+                LoadingCard.Visibility = Visibility.Visible;
+                _info = await StreamDownloader.InspectAsync(url, _userAgent, EffectiveReferrer(url), _cookieFile, ct);
+                ShowInfo();
+                TrySmartStart();
+                return;
+            }
 
             if (!MediaTools.YtDlpReady)
             {
@@ -120,7 +171,18 @@ public partial class VideoWindow : Window
 
             ToolCard.Visibility = Visibility.Collapsed;
             LoadingCard.Visibility = Visibility.Visible;
-            _info = await MediaDownloader.FetchInfoAsync(url, _userAgent, _referrer, _cookieFile, ct);
+            var effectiveRef = EffectiveReferrer(url);
+            try
+            {
+                _info = await MediaDownloader.FetchInfoAsync(url, _userAgent, effectiveRef, _cookieFile, ct);
+            }
+            catch (DownloadException ex) when (ex.Message != Loc.T("core.media.err_drm") && activeMedia.Count > 0)
+            {
+                if (await TryInspectSniffedMediaAsync(url, ct) is { } fallbackInfo)
+                    _info = fallbackInfo;
+                else
+                    throw;
+            }
             ShowInfo();
             MediaTools.WarmUpFfmpeg();
             TrySmartStart();
@@ -142,6 +204,7 @@ public partial class VideoWindow : Window
         {
             if (!ct.IsCancellationRequested)
             {
+                ToolCard.Visibility = Visibility.Collapsed;
                 LoadingCard.Visibility = Visibility.Collapsed;
                 SetBusy(false);
             }
@@ -151,7 +214,10 @@ public partial class VideoWindow : Window
     void ShowInfo()
     {
         if (_info == null) return;
-        var title = string.IsNullOrWhiteSpace(_info.Title) ? _initialTitle : _info.Title;
+        var currentUrl = UrlBox.Text.Trim();
+        var activeMedia = ActiveMedia(currentUrl);
+        var fallbackTitle = ActiveInitialTitle(currentUrl);
+        var title = string.IsNullOrWhiteSpace(_info.Title) ? fallbackTitle : _info.Title;
         SetTitle(title);
         MetaText.Text = string.Join("  ·  ", new[] { _info.Uploader, Fmt.Duration(_info.Duration) }
             .Where(s => !string.IsNullOrWhiteSpace(s)));
@@ -167,10 +233,10 @@ public partial class VideoWindow : Window
         PlaylistList.ItemsSource = _info.Entries;
         UpdatePlaylistCount();
         RefreshSubtitleList();
-        DirectExpander.Visibility = _media.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        DirectHeader.Text = Loc.T("win.video.direct_header_format", _media.Count);
-        DirectList.ItemsSource = _media.Select(m => new DirectMediaRow(m)).ToList();
-        if (_media.Count > 0 && ErrorCard.Visibility == Visibility.Visible) DirectExpander.IsExpanded = true;
+        DirectExpander.Visibility = activeMedia.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        DirectHeader.Text = Loc.T("win.video.direct_header_format", activeMedia.Count);
+        DirectList.ItemsSource = activeMedia.Select(m => new DirectMediaRow(m)).ToList();
+        if (activeMedia.Count > 0 && ErrorCard.Visibility == Visibility.Visible) DirectExpander.IsExpanded = true;
         UpdateFolder(false);
         _ = ApplyThumbnailAsync(_info.Thumbnail);
         DownloadButton.IsEnabled = QueueButton.IsEnabled = _info.Qualities.Count > 0;
@@ -256,6 +322,17 @@ public partial class VideoWindow : Window
         UpdateFolder(true);
     }
 
+    void QualityList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject src
+            && ItemsControl.ContainerFromElement(QualityList, src) is ListBoxItem
+            && QualityList.SelectedItem is MediaQuality
+            && DownloadButton.IsEnabled)
+        {
+            AddMedia(startNow: true);
+        }
+    }
+
     void UpdateFolder(bool qualityChanged)
     {
         if (QualityList.SelectedItem is not MediaQuality q) return;
@@ -319,7 +396,8 @@ public partial class VideoWindow : Window
 
     void Browse_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new Microsoft.Win32.OpenFolderDialog { InitialDirectory = FolderBox.Text };
+        var dialog = new Microsoft.Win32.OpenFolderDialog();
+        if (Directory.Exists(FolderBox.Text)) dialog.InitialDirectory = FolderBox.Text;
         if (dialog.ShowDialog(this) == true)
         {
             _folderEdited = true;
@@ -329,35 +407,58 @@ public partial class VideoWindow : Window
 
     void DirectDownload_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { DataContext: DirectMediaRow row }) return;
-        var isStream = row.Media.Mime.Contains("mpegurl", StringComparison.OrdinalIgnoreCase)
-            || row.Media.Mime.Contains("dash", StringComparison.OrdinalIgnoreCase)
-            || row.Media.Url.Contains(".m3u8", StringComparison.OrdinalIgnoreCase)
-            || row.Media.Url.Contains(".mpd", StringComparison.OrdinalIgnoreCase);
+        if (sender is not Button { DataContext: DirectMediaRow row } btn) return;
+        string? customFolder = ContentPanel.Visibility == Visibility.Visible && !string.IsNullOrWhiteSpace(FolderBox.Text)
+            ? FolderBox.Text.Trim()
+            : null;
+        if (customFolder != null)
+        {
+            if (!AddDownloadWindow.IsAllowedFolder(customFolder, _manager.Settings))
+            {
+                ShowError(Loc.T("main.add.invalidFolder"));
+                return;
+            }
+            try { Directory.CreateDirectory(customFolder); }
+            catch { ShowError(Loc.T("main.add.createFolderFailed")); return; }
+        }
+        var effectiveRef = EffectiveReferrer(UrlBox.Text.Trim());
+        var isStream = StreamDownloader.IsStreamMime(row.Media.Mime)
+            || StreamDownloader.IsDirectStreamUrl(row.Media.Url)
+            || row.Media.Mime.Contains("mpegurl", StringComparison.OrdinalIgnoreCase)
+            || row.Media.Mime.Contains("dash", StringComparison.OrdinalIgnoreCase);
         if (isStream)
         {
-            var item = CreateMediaItem(row.Media.Url, Path.GetFileNameWithoutExtension(FileNames.FromUrl(row.Media.Url)) is { Length: > 0 } n && n != "index" && n != "master" ? n : (_info?.Title ?? TitleText.Text), "best");
+            var titleGuess = Path.GetFileNameWithoutExtension(FileNames.FromUrl(row.Media.Url)) is { Length: > 0 } n
+                && n is not ("index" or "master" or "playlist" or "manifest")
+                ? n
+                : (_info?.Title ?? TitleText.Text);
+            var item = CreateMediaItem(row.Media.Url, titleGuess, "best", folder: customFolder);
             _manager.Add(item, true);
         }
         else
         {
-            var item = _manager.CreateHttp(row.Media.Url, UrlBox.Text.Trim(), CookieHeader(row.Media.Url), _userAgent, FileNames.FromUrl(row.Media.Url));
+            var item = _manager.CreateHttp(row.Media.Url, effectiveRef, CookieHeader(row.Media.Url), _userAgent, FileNames.FromUrl(row.Media.Url));
+            item.ParentPage = UrlBox.Text.Trim();
+            if (customFolder != null) item.SaveDir = customFolder;
             if (row.Media.Size > 0) item.TotalSize = row.Media.Size;
             _manager.Add(item, true);
         }
+        btn.IsEnabled = false;
     }
 
     /// <summary>Smart mode: a video sent from the browser starts right away with the remembered quality and folder.</summary>
     void TrySmartStart()
     {
-        if (!_openedWithUrl || !_manager.Settings.VideoSmartMode || _info == null || _info.IsPlaylist) return;
+        if (!IsInitialUrl(UrlBox.Text.Trim()) || SmartModeBox.IsChecked != true || _info == null || _info.IsPlaylist) return;
         if (QualityList.SelectedItem is not MediaQuality q || q.Key != _manager.Settings.DefaultVideoQuality) return;
-        App.Instance.Notify(Loc.T("video.smart.started_title"), Loc.T("video.smart.started_body", _info.Title, q.Label));
-        AddMedia(startNow: true);
+        var title = _info.Title;
+        var label = q.Label;
+        if (AddMedia(startNow: true))
+            (Application.Current as App)?.Notify(Loc.T("video.smart.started_title"), Loc.T("video.smart.started_body", title, label));
     }
 
-    void Download_Click(object sender, RoutedEventArgs e) => AddMedia(startNow: true);
-    void Queue_Click(object sender, RoutedEventArgs e) => AddMedia(startNow: false);
+    void Download_Click(object sender, RoutedEventArgs e) => _ = AddMedia(startNow: true);
+    void Queue_Click(object sender, RoutedEventArgs e) => _ = AddMedia(startNow: false);
 
     MediaOptions BuildMediaOptionsFromUi(string quality)
     {
@@ -429,11 +530,37 @@ public partial class VideoWindow : Window
         s.Save();
     }
 
-    void AddMedia(bool startNow)
+    bool AddMedia(bool startNow)
     {
-        if (_info == null || QualityList.SelectedItem is not MediaQuality q) return;
+        if (_info == null || QualityList.SelectedItem is not MediaQuality q) return false;
         var folder = FolderBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(folder)) folder = _manager.Settings.FolderFor(q.AudioOnly ? "music" : "video");
+        if (!AddDownloadWindow.IsAllowedFolder(folder, _manager.Settings))
+        {
+            ShowError(Loc.T("main.add.invalidFolder"));
+            return false;
+        }
+        try { Directory.CreateDirectory(folder); }
+        catch
+        {
+            ShowError(Loc.T("main.add.createFolderFailed"));
+            return false;
+        }
+
+        if (startNow)
+        {
+            string effectiveTemp = DownloadItem.TempRoot;
+            long tempFree = SpaceCheck.AreDifferentDrives(folder, effectiveTemp) ? SpaceCheck.FreeBytes(effectiveTemp) : -1;
+            var verdict = SpaceCheck.Evaluate(SpaceCheck.FreeBytes(folder), q.Size ?? -1, 0, isMedia: !_resolvedIsDirectFile, tempFree);
+            if (verdict.IsInsufficient)
+            {
+                ShowError(SpaceCheck.FormatInsufficientMessage(verdict));
+                return false;
+            }
+            if (verdict.IsWarn && Application.Current != null &&
+                !Confirm.Ask(this, Loc.T("main.title"), Loc.T("space.warn_unknown", Fmt.Size(verdict.AvailableBytes)), Loc.T("main.dialog.ok")))
+                return false;
+        }
 
         MediaOptions mediaOptions;
         string? resolvedPlaylistSpec;
@@ -446,7 +573,7 @@ public partial class VideoWindow : Window
         catch (ArgumentException ex)
         {
             ShowError(ex.Message);
-            return;
+            return false;
         }
 
         PersistExtraDefaults(mediaOptions);
@@ -467,33 +594,170 @@ public partial class VideoWindow : Window
         if (_info.IsPlaylist && selected.Count == 0)
         {
             ShowError(Loc.T("win.video.err_no_playlist_item"));
-            return;
+            return false;
+        }
+
+        Guid? targetQueue = null;
+        bool startPickedQueue = false;
+        if (!startNow)
+        {
+            if (Application.Current is App app)
+            {
+                var pick = app.PickQueue(this, _info.IsPlaylist ? selected.Count : 1);
+                if (pick == null) return false;
+                targetQueue = pick.Value.Queue;
+                startPickedQueue = pick.Value.Start;
+            }
+            else
+            {
+                targetQueue = QueueDef.MainId;
+            }
         }
 
         if (_info.IsPlaylist)
         {
             var perItemOptions = mediaOptions with { PlaylistItems = null, PlaylistFrom = null, PlaylistTo = null };
+            var queueId = targetQueue ?? QueueDef.MainId;
             foreach (var entry in selected)
-                _manager.Add(CreateMediaItem(entry.Url, entry.Title, q.Key, folder, _info.Title, q.Size, perItemOptions), false);
-            if (startNow) _manager.StartQueue();
+                _manager.Add(CreateMediaItem(entry.Url, entry.Title, q.Key, folder, _info.Title, q.Size, perItemOptions), false, queueId);
+            if (startNow || startPickedQueue) _manager.StartQueue(queueId);
+        }
+        else if (_resolvedStreamUrl != null && _resolvedIsDirectFile)
+        {
+            var ext = Path.GetExtension(FileNames.FromUrl(_resolvedStreamUrl));
+            if (string.IsNullOrWhiteSpace(ext)) ext = ".mp4";
+            var fileName = FileNames.Sanitize(_info.Title) + ext;
+            var item = _manager.CreateHttp(_resolvedStreamUrl, EffectiveReferrer(UrlBox.Text.Trim()), CookieHeader(_resolvedStreamUrl), _userAgent, fileName);
+            item.ParentPage = UrlBox.Text.Trim();
+            item.SaveDir = folder;
+            if (q.Size is > 0) item.TotalSize = q.Size.Value;
+            _manager.Add(item, startNow, targetQueue);
+            if (startPickedQueue && targetQueue.HasValue) _manager.StartQueue(targetQueue.Value);
         }
         else
         {
-            _manager.Add(CreateMediaItem(UrlBox.Text.Trim(), _info.Title, q.Key, folder, _info.Title, q.Size, mediaOptions), startNow);
+            var targetUrl = _resolvedStreamUrl ?? UrlBox.Text.Trim();
+            _manager.Add(CreateMediaItem(targetUrl, _info.Title, q.Key, folder, _info.Title, q.Size, mediaOptions), startNow, targetQueue);
+            if (startPickedQueue && targetQueue.HasValue) _manager.StartQueue(targetQueue.Value);
         }
         Close();
+        return true;
+    }
+
+    string EffectiveReferrer(string pageUrl)
+        => !string.IsNullOrWhiteSpace(_referrer) && IsInitialUrl(pageUrl) ? _referrer : pageUrl;
+
+    async Task<MediaInfo?> TryInspectSniffedMediaAsync(string pageUrl, CancellationToken ct)
+    {
+        var activeMedia = ActiveMedia(pageUrl);
+        if (activeMedia.Count == 0) return null;
+        var initialTitle = ActiveInitialTitle(pageUrl);
+        var effectiveRef = EffectiveReferrer(pageUrl);
+        foreach (var candidate in activeMedia)
+        {
+            bool isStream = StreamDownloader.IsStreamMime(candidate.Mime) || StreamDownloader.IsDirectStreamUrl(candidate.Url);
+            if (!isStream) continue;
+
+            var streamCookies = MediaDownloader.WriteCookieFile(FilterCookiesForUrl(candidate.Url));
+            try
+            {
+                var info = await StreamDownloader.InspectAsync(candidate.Url, _userAgent, effectiveRef, streamCookies, ct);
+                if (!string.IsNullOrWhiteSpace(initialTitle))
+                    info.Title = initialTitle;
+                _resolvedStreamUrl = candidate.Url;
+                _resolvedIsDirectFile = false;
+                return info;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (DownloadException ex) when (ex.Message == Loc.T("core.media.err_drm"))
+            {
+                throw;
+            }
+            catch
+            {
+                /* try next sniffed stream candidate */
+            }
+            finally
+            {
+                MediaDownloader.TryDelete(streamCookies);
+            }
+        }
+
+        var directProg = activeMedia
+            .Where(m => !StreamDownloader.IsStreamMime(m.Mime) && !StreamDownloader.IsDirectStreamUrl(m.Url))
+            .OrderByDescending(m => m.Size)
+            .FirstOrDefault();
+        if (directProg != null)
+        {
+            _resolvedStreamUrl = directProg.Url;
+            _resolvedIsDirectFile = true;
+            var title = !string.IsNullOrWhiteSpace(initialTitle) ? initialTitle : Path.GetFileNameWithoutExtension(FileNames.FromUrl(directProg.Url));
+            var info = new MediaInfo { Title = string.IsNullOrWhiteSpace(title) ? "video" : title };
+            info.Qualities.Add(new MediaQuality
+            {
+                Key = "best",
+                Label = Loc.T("core.media.best_quality"),
+                Size = directProg.Size > 0 ? directProg.Size : null,
+            });
+            return info;
+        }
+
+        return null;
+    }
+
+    async void UpdateTool_Click(object sender, RoutedEventArgs e)
+    {
+        if (_closing) return;
+        UpdateToolButton.IsEnabled = false;
+        RetryButton.IsEnabled = false;
+        UpdateToolButton.Content = Loc.T("win.video.updating_tool");
+        try
+        {
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_windowCts.Token, timeoutCts.Token);
+            var msg = await MediaTools.UpdateYtDlpAsync(linkedCts.Token);
+            if (_closing) return;
+            Log.Write("yt-dlp update from video window: " + msg);
+            UpdateToolButton.Content = Loc.T("win.video.update_tool");
+            await FetchAsync();
+        }
+        catch (OperationCanceledException) when (_closing)
+        {
+            // Window closed during tool update.
+        }
+        catch (Exception ex)
+        {
+            if (!_closing)
+            {
+                UpdateToolButton.Content = Loc.T("win.video.update_tool");
+                ShowError(ex is DownloadException ? ex.Message : Loc.T("core.media.tool_update_failed"));
+            }
+        }
+        finally
+        {
+            if (!_closing)
+            {
+                UpdateToolButton.IsEnabled = true;
+                RetryButton.IsEnabled = true;
+            }
+        }
     }
 
     DownloadItem CreateMediaItem(string url, string title, string quality, string? folder = null,
         string? description = null, long? size = null, MediaOptions? mediaOptions = null)
     {
-        var extension = quality == "mp3" ? ".mp3" : quality == "m4a" ? ".m4a" : ".mp4";
-        var audioOnly = quality is "mp3" or "m4a";
+        var extension = quality is "mp3" or "audio" ? ".mp3" : quality == "m4a" ? ".m4a" : ".mp4";
+        var audioOnly = quality is "mp3" or "m4a" or "audio";
+        var pageUrl = UrlBox.Text.Trim();
         return new DownloadItem
         {
             Kind = DownloadKind.Media,
             Url = url,
-            Referrer = _referrer,
+            Referrer = EffectiveReferrer(pageUrl),
+            ParentPage = pageUrl,
             UserAgent = _userAgent,
             MediaQuality = quality,
             MediaOptions = mediaOptions,
@@ -563,18 +827,27 @@ public partial class VideoWindow : Window
         DownloadButton.IsEnabled = QueueButton.IsEnabled = !busy && _info?.Qualities.Count > 0;
     }
 
-    void ShowError(string message)
+    void ShowError(string message, bool suppressDirectFallback = false)
     {
+        bool isDrm = suppressDirectFallback || message == Loc.T("core.media.err_drm");
+        var activeMedia = ActiveMedia(UrlBox.Text.Trim());
         ErrorText.Text = message;
         ErrorCard.Visibility = Visibility.Visible;
-        if (_media.Count > 0)
+        UpdateToolButton.Visibility = !isDrm && MediaDownloader.IsToolUpdateRecommended(message)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        if (!isDrm && activeMedia.Count > 0)
         {
             DirectHint.Visibility = Visibility.Visible;
-            ContentPanel.Visibility = Visibility.Visible;
             DirectExpander.Visibility = Visibility.Visible;
-            DirectHeader.Text = Loc.T("win.video.direct_header_format", _media.Count);
-            DirectList.ItemsSource = _media.Select(m => new DirectMediaRow(m)).ToList();
+            DirectHeader.Text = Loc.T("win.video.direct_header_format", activeMedia.Count);
+            DirectList.ItemsSource = activeMedia.Select(m => new DirectMediaRow(m)).ToList();
             DirectExpander.IsExpanded = true;
+        }
+        else
+        {
+            DirectHint.Visibility = Visibility.Collapsed;
+            DirectExpander.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -587,6 +860,9 @@ public partial class VideoWindow : Window
 
     void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        _closing = true;
+        _windowCts.Cancel();
+        _windowCts.Dispose();
         _fetchCts?.Cancel();
         _fetchCts?.Dispose();
         MediaDownloader.TryDelete(_cookieFile);

@@ -59,8 +59,15 @@ public static class BrowserIntegration
     {
         foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
         {
-            using var key = hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\App Paths\" + exe);
-            if (key?.GetValue(null) is string p && File.Exists(p.Trim('"'))) return p.Trim('"');
+            try
+            {
+                using var key = hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\App Paths\" + exe);
+                if (key?.GetValue(null) is string p && File.Exists(p.Trim('"'))) return p.Trim('"');
+            }
+            catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+            {
+                // Restricted registry ACLs must not crash browser detection or UI pages.
+            }
         }
         return null;
     }
@@ -108,8 +115,15 @@ public static class BrowserIntegration
 
     public static bool IsRegistered()
     {
-        using var key = Registry.CurrentUser.OpenSubKey(@"Software\Google\Chrome\NativeMessagingHosts\" + HostName);
-        return key?.GetValue(null) is string p && File.Exists(p);
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Google\Chrome\NativeMessagingHosts\" + HostName);
+            return key?.GetValue(null) is string p && File.Exists(p);
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Copies the extension embedded in GDM.exe to %LOCALAPPDATA%\Golan\GDM\extension and builds %LOCALAPPDATA%\Golan\GDM\gdm-firefox.xpi.</summary>

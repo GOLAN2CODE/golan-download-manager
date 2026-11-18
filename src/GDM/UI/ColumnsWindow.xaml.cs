@@ -26,19 +26,23 @@ public partial class ColumnsWindow : Window
 
     ColumnPref? Selected => (ColumnsList.SelectedItem as CheckBox)?.Tag as ColumnPref;
 
-    void Refresh()
+    void Refresh(int preserveIndex = 0)
     {
         _updating = true;
         ColumnsList.Items.Clear();
         foreach (var c in _working)
         {
+            var label = _titles.TryGetValue(c.Key, out var t) ? t : c.Key;
             var box = new CheckBox
             {
-                Content = _titles.TryGetValue(c.Key, out var t) ? t : c.Key,
+                Content = label,
                 IsChecked = c.Visible,
                 Tag = c,
                 IsEnabled = c.Key != "name"
             };
+            System.Windows.Automation.AutomationProperties.SetName(box, label);
+            box.PreviewMouseLeftButtonDown += (_, _) => ColumnsList.SelectedItem = box;
+            box.GotFocus += (_, _) => ColumnsList.SelectedItem = box;
             box.Checked += CheckChanged;
             box.Unchecked += CheckChanged;
             ColumnsList.Items.Add(box);
@@ -46,8 +50,19 @@ public partial class ColumnsWindow : Window
         _updating = false;
         if (ColumnsList.Items.Count > 0)
         {
-            ColumnsList.SelectedIndex = 0;
+            ColumnsList.SelectedIndex = System.Math.Clamp(preserveIndex, 0, ColumnsList.Items.Count - 1);
         }
+        SyncButtons();
+    }
+
+    void SyncButtons()
+    {
+        int idx = ColumnsList.SelectedIndex;
+        var sel = Selected;
+        if (UpBtn != null) UpBtn.IsEnabled = idx > 0;
+        if (DownBtn != null) DownBtn.IsEnabled = idx >= 0 && idx < _working.Count - 1;
+        if (ShowBtn != null) ShowBtn.IsEnabled = sel is { Visible: false };
+        if (HideBtn != null) HideBtn.IsEnabled = sel is { Visible: true, Key: not "name" };
     }
 
     void CheckChanged(object s, RoutedEventArgs e)
@@ -55,6 +70,7 @@ public partial class ColumnsWindow : Window
         if (!_updating && s is CheckBox b && b.Tag is ColumnPref c)
         {
             c.Visible = b.IsChecked == true;
+            SyncButtons();
         }
     }
 
@@ -63,16 +79,37 @@ public partial class ColumnsWindow : Window
         if (Selected is { } c)
         {
             _updating = true;
+            WidthBox.ClearValue(Control.BorderBrushProperty);
             WidthBox.Text = c.Width > 0 ? c.Width.ToString("0") : "";
             _updating = false;
         }
+        SyncButtons();
+    }
+
+    public static double? ParseColumnWidth(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return 0;
+        if (double.TryParse(text.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var w)
+            && !double.IsNaN(w) && !double.IsInfinity(w))
+        {
+            if (w < 0) return null;
+            return w == 0 ? 0 : System.Math.Clamp(w, 30, 2000);
+        }
+        return null;
     }
 
     void Width_Changed(object s, TextChangedEventArgs e)
     {
-        if (!_updating && Selected is { } c && double.TryParse(WidthBox.Text, out var w))
+        if (_updating || Selected is not { } c) return;
+        if (ParseColumnWidth(WidthBox.Text) is { } w)
         {
+            WidthBox.ClearValue(Control.BorderBrushProperty);
             c.Width = w;
+        }
+        else if (TryFindResource("Danger") is System.Windows.Media.Brush danger)
+        {
+            WidthBox.BorderBrush = danger;
         }
     }
 
@@ -85,8 +122,7 @@ public partial class ColumnsWindow : Window
             return;
         }
         (_working[i], _working[j]) = (_working[j], _working[i]);
-        Refresh();
-        ColumnsList.SelectedIndex = j;
+        Refresh(j);
     }
 
     void Up_Click(object s, RoutedEventArgs e) => Move(-1);
@@ -95,20 +131,22 @@ public partial class ColumnsWindow : Window
 
     void Show_Click(object s, RoutedEventArgs e)
     {
+        var idx = ColumnsList.SelectedIndex;
         if (Selected is { } c)
         {
             c.Visible = true;
         }
-        Refresh();
+        Refresh(idx);
     }
 
     void Hide_Click(object s, RoutedEventArgs e)
     {
+        var idx = ColumnsList.SelectedIndex;
         if (Selected is { Key: not "name" } c)
         {
             c.Visible = false;
         }
-        Refresh();
+        Refresh(idx);
     }
 
     static readonly string[] DefaultColumnOrder = ["name", "size", "status", "speed", "eta", "lastTry", "description", "saveTo", "added", "referrer", "parentPage"];
@@ -136,6 +174,11 @@ public partial class ColumnsWindow : Window
     {
         _target.Clear();
         _target.AddRange(_working.Select(Clone));
-        DialogResult = true;
+        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal)
+            DialogResult = true;
+        else
+            Close();
     }
+
+    void Cancel_Click(object s, RoutedEventArgs e) => Close();
 }

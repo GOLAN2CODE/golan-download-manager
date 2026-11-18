@@ -33,6 +33,10 @@ public partial class SchedulerWindow : Window
 
     void QueuesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (!_loading && _queue != null)
+        {
+            SyncQueueFromControls();
+        }
         if (QueuesList.SelectedItem is QueueDef q)
         {
             _queue = q;
@@ -44,7 +48,10 @@ public partial class SchedulerWindow : Window
     {
         if (_queue == null) return;
         _loading = true;
+        DeleteQueueBtn.IsEnabled = !_queue.BuiltIn;
+        QueueNameBox.IsReadOnly = _queue.BuiltIn;
         QueueNameBox.Text = _queue.Name;
+        QueueError.Text = "";
         ScheduleEnabledBox.IsChecked = _queue.ScheduleEnabled;
         PeriodicBox.IsChecked = _queue.Periodic;
         StartTimeBox.Text = _queue.StartTime;
@@ -77,16 +84,19 @@ public partial class SchedulerWindow : Window
         var selectedId = (QueueItemsGrid.SelectedItem as DownloadItem)?.Id;
         var items = _manager.QueueItems(_queue.Id).ToList();
         QueueItemsGrid.ItemsSource = items;
+        QueueEmptyText.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (selectedId is { } id)
             QueueItemsGrid.SelectedItem = items.FirstOrDefault(x => x.Id == id);
         UpdateNextStart();
-        if (QueuesList.Items.Count > 0)
-        {
-            QueuesList.Items.Refresh();
-            foreach (var item in QueuesList.Items)
-                if (QueuesList.ItemContainerGenerator.ContainerFromItem(item) is ListBoxItem container)
-                    container.Tag = (Brush)(FindResource(_manager.IsQueueRunning(((QueueDef)item).Id) ? "Success" : "Muted"));
-        }
+        UpdateQueueRunningTags();
+    }
+
+    void UpdateQueueRunningTags()
+    {
+        if (QueuesList.Items.Count == 0) return;
+        foreach (var item in QueuesList.Items)
+            if (QueuesList.ItemContainerGenerator.ContainerFromItem(item) is ListBoxItem container)
+                container.Tag = (Brush)(FindResource(_manager.IsQueueRunning(((QueueDef)item).Id) ? "Success" : "Muted"));
     }
 
     void QueueItem_Loaded(object sender, RoutedEventArgs e)
@@ -109,16 +119,30 @@ public partial class SchedulerWindow : Window
     {
         if (_queue == null || _queue.BuiltIn) return;
         if (!Confirm.Ask(this, Loc.T("win.scheduler.delete_title"), Loc.T("win.scheduler.delete_confirm", _queue.Name), Loc.T("win.scheduler.delete"), true)) return;
-        foreach (var item in _manager.QueueItems(_queue.Id).ToList()) _manager.RemoveFromQueue(item);
-        var index = _manager.Settings.Queues.IndexOf(_queue);
-        _manager.Settings.Queues.Remove(_queue);
+        var toDelete = _queue;
+        _manager.StopQueue(toDelete.Id);
+        foreach (var item in _manager.QueueItems(toDelete.Id).ToList()) _manager.RemoveFromQueue(item);
+        var index = _manager.Settings.Queues.IndexOf(toDelete);
+        _manager.Settings.Queues.Remove(toDelete);
+        _manager.Settings.Save();
+        App.Instance?.MainView?.RefreshCategories();
+        App.Instance?.RefreshTrayMenu();
         QueuesList.Items.Refresh();
         QueuesList.SelectedIndex = Math.Max(0, index - 1);
     }
 
     void QueueNameBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (!_loading && _queue != null && !string.IsNullOrWhiteSpace(QueueNameBox.Text)) _queue.Name = QueueNameBox.Text;
+        if (_loading || _queue == null || _queue.BuiltIn) return;
+        var trimmed = QueueNameBox.Text.Trim();
+        if (trimmed.Length == 0)
+        {
+            QueueError.Text = Loc.T("win.scheduler.err_empty_name");
+            return;
+        }
+        QueueError.Text = "";
+        _queue.Name = trimmed;
+        QueuesList.Items.Refresh();
     }
 
     void ScheduleChanged_Click(object sender, RoutedEventArgs e)
@@ -138,19 +162,33 @@ public partial class SchedulerWindow : Window
     void QueueOptionChanged_SelectedDateChanged(object sender, SelectionChangedEventArgs e) => SyncQueueFromControls();
     void QueueControl_LostFocus(object sender, RoutedEventArgs e) => SyncQueueFromControls();
 
+    public static bool IsValidClockTime(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || !text.Contains(':'))
+            return false;
+        return TimeOnly.TryParseExact(
+            text.Trim(),
+            ["H:mm", "HH:mm", "H:mm:ss", "HH:mm:ss"],
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out _);
+    }
+
     void TimeBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         ValidateTimes();
         if (_loading || _queue == null) return;
-        if (sender == StartTimeBox) _queue.StartTime = StartTimeBox.Text;
-        else _queue.StopTime = StopTimeBox.Text;
+        if (sender == StartTimeBox && IsValidClockTime(StartTimeBox.Text))
+            _queue.StartTime = StartTimeBox.Text.Trim();
+        else if (sender == StopTimeBox && IsValidClockTime(StopTimeBox.Text))
+            _queue.StopTime = StopTimeBox.Text.Trim();
         UpdateNextStart();
     }
 
     void ValidateTimes()
     {
-        TimeError.Text = TimeSpan.TryParse(StartTimeBox.Text, out _) ? "" : Loc.T("win.scheduler.err_start_time");
-        if (StopBox.IsChecked == true && !TimeSpan.TryParse(StopTimeBox.Text, out _)) TimeError.Text = Loc.T("win.scheduler.err_stop_time");
+        TimeError.Text = IsValidClockTime(StartTimeBox.Text) ? "" : Loc.T("win.scheduler.err_start_time");
+        if (StopBox.IsChecked == true && !IsValidClockTime(StopTimeBox.Text)) TimeError.Text = Loc.T("win.scheduler.err_stop_time");
     }
 
     void UpdateNextStart()
@@ -163,7 +201,10 @@ public partial class SchedulerWindow : Window
     void SyncQueueFromControls()
     {
         if (_loading || _queue == null) return;
+        _queue.ScheduleEnabled = ScheduleEnabledBox.IsChecked == true;
         _queue.Periodic = PeriodicBox.IsChecked == true;
+        if (IsValidClockTime(StartTimeBox.Text)) _queue.StartTime = StartTimeBox.Text.Trim();
+        if (IsValidClockTime(StopTimeBox.Text)) _queue.StopTime = StopTimeBox.Text.Trim();
         _queue.OnceDate = OnceDatePicker.SelectedDate;
         _queue.Daily = DailyRadio.IsChecked == true;
         _queue.Days = DaysPanel.Children.OfType<CheckBox>()
@@ -175,11 +216,13 @@ public partial class SchedulerWindow : Window
         _queue.StopEnabled = StopBox.IsChecked == true;
         _queue.StartOnStartup = StartupBox.IsChecked == true;
         if (int.TryParse(RetriesBox.Text, out var retries)) _queue.Retries = Math.Max(0, retries);
-        _queue.OpenWhenDone = OpenWhenDoneBox.Text;
+        _queue.OpenWhenDone = OpenWhenDoneBox.Text.Trim();
         _queue.ExitWhenDone = ExitBox.IsChecked == true;
         _queue.ShutdownWhenDone = ShutdownBox.IsChecked == true;
         _queue.ForceProcesses = ForceBox.IsChecked == true;
         if (int.TryParse(MaxSimultaneousBox.Text, out var max)) _queue.MaxSimultaneous = Math.Clamp(max, 1, 10);
+        ValidateTimes();
+        UpdateNextStart();
     }
 
     void MaxSimultaneous_TextChanged(object sender, TextChangedEventArgs e)
@@ -190,7 +233,11 @@ public partial class SchedulerWindow : Window
     void BrowseOpen_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog { Title = Loc.T("win.scheduler.browse_open_title") };
-        if (dialog.ShowDialog(this) == true) OpenWhenDoneBox.Text = dialog.FileName;
+        if (dialog.ShowDialog(this) == true)
+        {
+            OpenWhenDoneBox.Text = dialog.FileName;
+            SyncQueueFromControls();
+        }
     }
 
     DownloadItem? SelectedItem => QueueItemsGrid.SelectedItem as DownloadItem;
@@ -205,14 +252,19 @@ public partial class SchedulerWindow : Window
         SyncQueueFromControls();
         if (!ValidateTimesAndShow()) return;
         _manager.Settings.Save();
-        App.Instance.MainView?.RefreshCategories();
-        App.Instance.RefreshTrayMenu();
+        App.Instance?.MainView?.RefreshCategories();
+        App.Instance?.RefreshTrayMenu();
     }
 
     bool ValidateTimesAndShow()
     {
         ValidateTimes();
-        return string.IsNullOrEmpty(TimeError.Text);
+        if (!string.IsNullOrEmpty(TimeError.Text))
+        {
+            QueueTabs.SelectedIndex = 0;
+            return false;
+        }
+        return true;
     }
 
     void Close_Click(object sender, RoutedEventArgs e) { Apply_Click(sender, e); if (string.IsNullOrEmpty(TimeError.Text)) Close(); }

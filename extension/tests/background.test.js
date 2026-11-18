@@ -105,6 +105,7 @@ function createHarness(options = {}) {
     });
 
   let cookiesByOrigin = options.cookiesByOrigin || {};
+  let cookiesByUrl = options.cookiesByUrl || {};
   let scriptLinksByTab = options.scriptLinksByTab || {};
   let tabsById = options.tabsById || {};
 
@@ -209,6 +210,10 @@ function createHarness(options = {}) {
     cookies: {
       getAll(details, cb) {
         calls.cookiesGetAll.push(details);
+        if (details && details.url && Object.prototype.hasOwnProperty.call(cookiesByUrl, details.url)) {
+          queueMicrotask(() => cb(structuredClone(cookiesByUrl[details.url] || [])));
+          return;
+        }
         let origin = "";
         try {
           origin = new URL(details.url).origin;
@@ -1568,6 +1573,7 @@ test("22) a refused port falls back to one-shot messages; an older helper withou
     refused.h.chrome.runtime.lastError = { message: "Specified native messaging host not found." };
     port.onDisconnect.emit(port);
     refused.h.chrome.runtime.lastError = null;
+    throw new Error("Attempting to use a disconnected port object");
   });
   const st = await refused.h.sendMessage({ type: "get-status" });
   assert.equal(st.connected, true, "answered by the one-shot fallback");
@@ -1581,3 +1587,52 @@ test("22) a refused port falls back to one-shot messages; an older helper withou
   assert.equal(st2.version, "2.3.0");
   assert.equal(old.h.calls.nativeMessages.length, 0);
 });
+
+test("23) interceptDownload merges path-scoped cookies from same-host finalUrl and skips cross-host or https->http downgrade", async () => {
+  const h = createHarness({
+    cookiesByUrl: {
+      "https://files.example.com/go?id=1": [{ name: "root_session", value: "ROOT1" }],
+      "https://files.example.com/protected/dl/archive.zip": [
+        { name: "root_session", value: "ROOT1" },
+        { name: "dl_token", value: "PATH_SCOPED_99" }
+      ],
+      "https://files.example.com/go?id=2": [{ name: "root_session", value: "ROOT1" }],
+      "https://cdn.other.net/archive2.zip": [{ name: "cdn_secret", value: "CDN_NO" }],
+      "https://files.example.com/go?id=3": [{ name: "root_session", value: "ROOT1" }],
+      "http://files.example.com/protected/dl/archive3.zip": [{ name: "insecure_tok", value: "HTTP_NO" }]
+    }
+  });
+
+  await h.triggerDownload({
+    id: 2301,
+    url: "https://files.example.com/go?id=1",
+    finalUrl: "https://files.example.com/protected/dl/archive.zip",
+    filename: "archive.zip",
+    mime: "application/zip"
+  });
+
+  await h.triggerDownload({
+    id: 2302,
+    url: "https://files.example.com/go?id=2",
+    finalUrl: "https://cdn.other.net/archive2.zip",
+    filename: "archive2.zip",
+    mime: "application/zip"
+  });
+
+  await h.triggerDownload({
+    id: 2303,
+    url: "https://files.example.com/go?id=3",
+    finalUrl: "http://files.example.com/protected/dl/archive3.zip",
+    filename: "archive3.zip",
+    mime: "application/zip"
+  });
+
+  const dlMsgs = h.calls.nativeMessages
+    .map((m) => m.message)
+    .filter((m) => m.action === "download");
+  assert.equal(dlMsgs.length, 3);
+  assert.equal(dlMsgs[0].cookies, "root_session=ROOT1; dl_token=PATH_SCOPED_99");
+  assert.equal(dlMsgs[1].cookies, "root_session=ROOT1");
+  assert.equal(dlMsgs[2].cookies, "root_session=ROOT1");
+});
+

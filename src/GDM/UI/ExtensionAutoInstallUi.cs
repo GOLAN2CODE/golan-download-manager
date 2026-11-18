@@ -1,0 +1,547 @@
+using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using System.Windows.Media.Imaging;
+using Golan.Gdm.Core;
+using Golan.Gdm.Integration;
+
+namespace Golan.Gdm.UI;
+
+/// <summary>
+/// Reusable card control that runs <see cref="ExtensionAutoInstaller"/> on a background task, displays live per-step
+/// progress, allows cancellation, renders per-browser results, and opens <see cref="BrowserGuideWindow"/> on failure.
+/// </summary>
+public sealed class ExtensionAutoInstallPanel : Border
+{
+    readonly ExtensionAutoInstaller? _installer;
+    readonly IReadOnlyList<BrowserIntegration.BrowserInfo>? _targetBrowsers;
+    readonly Action<string?>? _openManualGuide;
+    readonly Action<IReadOnlyList<AutoInstallResult>>? _onCompleted;
+    readonly bool _inlineManualGuide;
+    CancellationTokenSource? _cts;
+    Window? _hookedWindow;
+
+    public Button InstallButton { get; }
+    public Button CancelButton { get; }
+    public TextBlock ProgressText { get; }
+    public StackPanel ResultsPanel { get; }
+    public bool IsRunning { get; private set; }
+    public IReadOnlyList<AutoInstallResult> LastResults { get; private set; } = [];
+
+    public ExtensionAutoInstallPanel(
+        ExtensionAutoInstaller? installer = null,
+        IReadOnlyList<BrowserIntegration.BrowserInfo>? targetBrowsers = null,
+        Action<string?>? openManualGuide = null,
+        Action<IReadOnlyList<AutoInstallResult>>? onCompleted = null,
+        bool inlineManualGuide = false)
+    {
+        _installer = installer;
+        _targetBrowsers = targetBrowsers;
+        _openManualGuide = openManualGuide;
+        _onCompleted = onCompleted;
+        _inlineManualGuide = inlineManualGuide;
+
+        SetResourceReference(StyleProperty, "Card");
+        AutomationProperties.SetAutomationId(this, "ExtensionAutoInstallPanel");
+
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock
+        {
+            Text = Loc.T("autoinstall.ui.title"),
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 14,
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        var subtitle = new TextBlock
+        {
+            Text = Loc.T("autoinstall.ui.subtitle"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+        subtitle.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        stack.Children.Add(subtitle);
+
+        var buttonRow = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
+        InstallButton = new Button
+        {
+            Content = Loc.T("autoinstall.ui.button"),
+            Margin = new Thickness(0, 0, 8, 4),
+        };
+        InstallButton.SetResourceReference(FrameworkElement.StyleProperty, "Primary");
+        AutomationProperties.SetAutomationId(InstallButton, "AutoInstallExtensionBtn");
+        AutomationProperties.SetName(InstallButton, Loc.T("autoinstall.ui.button"));
+        InstallButton.Click += (_, _) => _ = StartInstallAsync();
+        buttonRow.Children.Add(InstallButton);
+
+        CancelButton = new Button
+        {
+            Content = Loc.T("autoinstall.ui.cancel"),
+            Margin = new Thickness(0, 0, 8, 4),
+            Visibility = Visibility.Collapsed,
+            IsEnabled = false,
+        };
+        AutomationProperties.SetAutomationId(CancelButton, "AutoInstallCancelBtn");
+        AutomationProperties.SetName(CancelButton, Loc.T("autoinstall.ui.cancel"));
+        CancelButton.Click += (_, _) => CancelInstall();
+        buttonRow.Children.Add(CancelButton);
+        stack.Children.Add(buttonRow);
+
+        ProgressText = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 0),
+            Visibility = Visibility.Collapsed,
+        };
+        AutomationProperties.SetAutomationId(ProgressText, "AutoInstallProgressText");
+        stack.Children.Add(ProgressText);
+
+        ResultsPanel = new StackPanel
+        {
+            Margin = new Thickness(0, 8, 0, 0),
+            Visibility = Visibility.Collapsed,
+        };
+        AutomationProperties.SetAutomationId(ResultsPanel, "AutoInstallResultsPanel");
+        stack.Children.Add(ResultsPanel);
+
+        Child = stack;
+
+        Loaded += (_, _) => AttachWindowClose();
+    }
+
+    void AttachWindowClose()
+    {
+        var win = Window.GetWindow(this);
+        if (win == null || ReferenceEquals(win, _hookedWindow))
+            return;
+        _hookedWindow = win;
+        win.Closed += (_, _) => CancelInstall();
+    }
+
+    public void CancelInstall()
+    {
+        if (!IsRunning || _cts is null || _cts.IsCancellationRequested)
+            return;
+        CancelButton.IsEnabled = false;
+        ProgressText.Text = Loc.T("autoinstall.ui.cancelling");
+        ProgressText.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        try { _cts.Cancel(); }
+        catch (ObjectDisposedException) { /* CTS already disposed on completion */ }
+    }
+
+    public async Task<IReadOnlyList<AutoInstallResult>> StartInstallAsync()
+    {
+        if (IsRunning)
+            return LastResults;
+
+        IsRunning = true;
+        InstallButton.IsEnabled = false;
+        CancelButton.Content = Loc.T("autoinstall.ui.cancel");
+        CancelButton.IsEnabled = true;
+        CancelButton.Visibility = Visibility.Visible;
+        ResultsPanel.Children.Clear();
+        ResultsPanel.Visibility = Visibility.Collapsed;
+        ProgressText.Text = Loc.T("autoinstall.ui.starting");
+        ProgressText.SetResourceReference(TextBlock.ForegroundProperty, "AccentText");
+        ProgressText.Visibility = Visibility.Visible;
+
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        var dispatcher = Dispatcher;
+
+        Action<AutoInstallProgress> onProgress = p =>
+        {
+            var line = string.IsNullOrWhiteSpace(p.BrowserName)
+                || p.Message.Contains(p.BrowserName, StringComparison.OrdinalIgnoreCase)
+                ? p.Message
+                : $"{p.BrowserName}: {p.Message}";
+            _ = dispatcher.BeginInvoke(() =>
+            {
+                if (IsRunning && !ct.IsCancellationRequested)
+                    ProgressText.Text = line;
+            });
+        };
+
+        try
+        {
+            var runner = _installer ?? new ExtensionAutoInstaller();
+            var targetBrowsers = _targetBrowsers;
+
+            var results = await Task.Run(async () =>
+            {
+                if (targetBrowsers != null)
+                {
+                    var list = new List<AutoInstallResult>(targetBrowsers.Count);
+                    foreach (var browser in targetBrowsers)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        list.Add(await runner.InstallAsync(browser, profileDirectory: null, onProgress, ct).ConfigureAwait(false));
+                    }
+                    return (IReadOnlyList<AutoInstallResult>)list;
+                }
+                return await runner.InstallAllInstalledAsync(onProgress, ct).ConfigureAwait(false);
+            }, ct);
+
+            LastResults = results;
+            ResetRunningButtons();
+
+            // A driver step may finish after Cancel (or after the window closed) without observing the token:
+            // treat it as cancelled, so no guide window opens over a closed or cancelled panel.
+            if (ct.IsCancellationRequested)
+                throw new OperationCanceledException(ct);
+
+            if (results.Count == 0)
+            {
+                ProgressText.Text = Loc.T("guide.noBrowsers");
+                ProgressText.SetResourceReference(TextBlock.ForegroundProperty, "Warning");
+                _onCompleted?.Invoke(results);
+                return results;
+            }
+
+            var firstFailed = ShowResults(results);
+            _onCompleted?.Invoke(results);
+            if (firstFailed != null)
+                OpenManualGuideFor(firstFailed.Browser);
+
+            return results;
+        }
+        catch (OperationCanceledException)
+        {
+            ResetRunningButtons();
+            ProgressText.Text = Loc.T("autoinstall.ui.cancelled");
+            ProgressText.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+            return LastResults;
+        }
+        catch (Exception ex)
+        {
+            Log.Write("auto-install ui failed: " + ex.Message);
+            ResetRunningButtons();
+            ProgressText.Text = Loc.T("autoinstall.ui.unexpected_error", FriendlyError.Format(ex));
+            ProgressText.SetResourceReference(TextBlock.ForegroundProperty, "Danger");
+            OpenManualGuideFor(null);
+            return LastResults;
+        }
+        finally
+        {
+            ResetRunningButtons();
+        }
+    }
+
+    /// <summary>
+    /// Shows the summary line and one row per browser (also used by the offscreen render test).
+    /// Returns the first result that needs the user's action, or null when every browser is done.
+    /// </summary>
+    public AutoInstallResult? ShowResults(IReadOnlyList<AutoInstallResult> results)
+    {
+        ResultsPanel.Children.Clear();
+        foreach (var r in results)
+            ResultsPanel.Children.Add(BuildResultRow(r));
+        ResultsPanel.Visibility = Visibility.Visible;
+        ProgressText.Visibility = Visibility.Visible;
+
+        var firstFailed = results.FirstOrDefault(r => !r.Succeeded);
+        if (firstFailed != null)
+        {
+            ProgressText.Text = Loc.T(_inlineManualGuide
+                ? "autoinstall.ui.done_needs_action_inline"
+                : "autoinstall.ui.done_needs_action");
+            ProgressText.SetResourceReference(TextBlock.ForegroundProperty, "Warning");
+        }
+        else
+        {
+            ProgressText.Text = Loc.T("autoinstall.ui.done_all_ok");
+            ProgressText.SetResourceReference(TextBlock.ForegroundProperty, "Success");
+        }
+        return firstFailed;
+    }
+
+    void ResetRunningButtons()
+    {
+        IsRunning = false;
+        InstallButton.IsEnabled = true;
+        CancelButton.IsEnabled = false;
+        CancelButton.Visibility = Visibility.Collapsed;
+    }
+
+    void OpenManualGuideFor(BrowserIntegration.BrowserInfo? browser)
+    {
+        var exe = browser?.ExePath is { Length: > 0 } p ? Path.GetFileName(p) : null;
+        if (_openManualGuide != null)
+        {
+            _openManualGuide(string.IsNullOrWhiteSpace(exe) ? null : exe);
+            return;
+        }
+        // Only a visible window can own the guide; a closed host falls back to the main window.
+        var host = Window.GetWindow(this);
+        App.Instance?.ShowBrowserGuide(host is { IsVisible: true } ? host : null, string.IsNullOrWhiteSpace(exe) ? null : exe);
+    }
+
+    UIElement BuildResultRow(AutoInstallResult r)
+    {
+        var rowBorder = new Border
+        {
+            CornerRadius = new CornerRadius(6),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 4, 0, 0),
+            Tag = r,
+        };
+        rowBorder.SetResourceReference(Border.BorderBrushProperty, "Line");
+
+        var body = new StackPanel();
+        var header = new WrapPanel();
+
+        var (statusLabel, brushKey, symbol) = r.Status switch
+        {
+            AutoInstallStatus.AlreadyInstalled => (Loc.T("autoinstall.ui.status.already_installed"), "Success", "✓"),
+            AutoInstallStatus.Installed => (Loc.T("autoinstall.ui.status.installed"), "Success", "✓"),
+            AutoInstallStatus.InstalledTemporary => (Loc.T("autoinstall.ui.status.installed_temp"), "Warning", "✓"),
+            _ => (Loc.T("autoinstall.ui.status.needs_action"), "Danger", "!"),
+        };
+
+        header.Children.Add(new TextBlock
+        {
+            Text = r.Browser.Name + " — ",
+            FontWeight = FontWeights.SemiBold,
+        });
+
+        var statusText = new TextBlock
+        {
+            Text = $"{symbol} {statusLabel}",
+            FontWeight = FontWeights.SemiBold,
+        };
+        statusText.SetResourceReference(TextBlock.ForegroundProperty, brushKey);
+        header.Children.Add(statusText);
+        body.Children.Add(header);
+
+        var msgText = new TextBlock
+        {
+            Text = r.Message,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+        msgText.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        body.Children.Add(msgText);
+
+        if (!r.Succeeded && r.ManualSteps is { Count: > 0 })
+        {
+            var stepsPanel = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+            foreach (var step in r.ManualSteps)
+            {
+                stepsPanel.Children.Add(new TextBlock
+                {
+                    Text = step,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 2, 0, 0),
+                });
+            }
+            body.Children.Add(stepsPanel);
+
+            if (!_inlineManualGuide)
+            {
+                var guideBtn = new Button
+                {
+                    Content = Loc.T("autoinstall.ui.open_guide"),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Margin = new Thickness(0, 6, 0, 0),
+                };
+                guideBtn.Click += (_, _) => OpenManualGuideFor(r.Browser);
+                body.Children.Add(guideBtn);
+            }
+        }
+
+        rowBorder.Child = body;
+        return rowBorder;
+    }
+}
+
+/// <summary>Dedicated dialog hosting <see cref="ExtensionAutoInstallPanel"/> and first-run offer prompt.</summary>
+public sealed class ExtensionAutoInstallWindow : Window
+{
+    public ExtensionAutoInstallPanel Panel { get; }
+
+    public ExtensionAutoInstallWindow(bool autoStartOnLoad = false)
+    {
+        Title = Loc.T("autoinstall.ui.title");
+        FlowDirection = Loc.FlowDirection;
+        Width = 600;
+        SizeToContent = SizeToContent.Height;
+        MaxHeight = Math.Max(460, SystemParameters.WorkArea.Height - 40);
+        ResizeMode = ResizeMode.NoResize;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Style = Application.Current?.TryFindResource("GdmWindow") as Style;
+        AutomationProperties.SetAutomationId(this, "ExtensionAutoInstallWindow");
+
+        var root = new StackPanel { Margin = new Thickness(22, 18, 22, 18) };
+        Panel = new ExtensionAutoInstallPanel();
+        root.Children.Add(Panel);
+
+        var close = new Button
+        {
+            Content = Loc.T("guide.close"),
+            MinWidth = 100,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 16, 0, 0),
+            IsCancel = true,
+        };
+        AutomationProperties.SetAutomationId(close, "AutoInstallWindowCloseBtn");
+        close.Click += (_, _) => Close();
+        root.Children.Add(close);
+
+        Content = new ScrollViewer
+        {
+            Content = root,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
+
+        if (autoStartOnLoad)
+            Loaded += (_, _) => _ = Panel.StartInstallAsync();
+    }
+
+    /// <summary>Opens the auto-install dialog without starting until the user clicks the install button.</summary>
+    public static void ShowDialogIdle(Window? owner)
+    {
+        var win = new ExtensionAutoInstallWindow(autoStartOnLoad: false);
+        var visibleOwner = owner is { IsVisible: true } ? owner : null;
+        if (visibleOwner != null) win.Owner = visibleOwner;
+        else win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        win.ShowDialog();
+    }
+
+    /// <summary>Shows the auto-install dialog and starts installing immediately after the user pressed "Install now".</summary>
+    public static void ShowAndStart(Window? owner)
+    {
+        var win = new ExtensionAutoInstallWindow(autoStartOnLoad: true);
+        var visibleOwner = owner is { IsVisible: true } ? owner : null;
+        if (visibleOwner != null) win.Owner = visibleOwner;
+        else win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        win.ShowDialog();
+    }
+
+    /// <summary>
+    /// Shows the one-time first-run offer dialog ("Install now" / "Later"), persists the choice in <paramref name="settings"/>,
+    /// and returns true only if the user explicitly pressed "Install now". Never runs the installer itself.
+    /// </summary>
+    public static bool AskFirstRunOffer(
+        Window? owner,
+        AppSettings settings,
+        IReadOnlyList<BrowserIntegration.BrowserInfo>? detectedBrowsers = null)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ExtensionOfferPolicy.MarkShown(settings, save: true);
+
+        var browsers = detectedBrowsers ?? ExtensionAutoInstaller.InstalledSupportedBrowsers();
+        bool installNow = false;
+        var w = CreateFirstRunOfferWindow(owner, browsers, choice => installNow = choice);
+        w.ShowDialog();
+
+        ExtensionOfferPolicy.RecordChoice(settings, installNow, save: true);
+        return installNow;
+    }
+
+    /// <summary>
+    /// Builds (without showing) the first-run offer dialog. <paramref name="onChoice"/> receives true for
+    /// "Install now" and false for "Later"; closing the window any other way leaves the choice as Later.
+    /// </summary>
+    public static Window CreateFirstRunOfferWindow(
+        Window? owner,
+        IReadOnlyList<BrowserIntegration.BrowserInfo> browsers,
+        Action<bool> onChoice)
+    {
+        // In Arabic, a right-to-left mark after each Latin browser name keeps the list and its
+        // parentheses in reading order instead of one reversed Latin run that wraps out of order.
+        var names = browsers.Count == 0 ? ""
+            : Loc.IsRtl
+                ? string.Join("‏، ", browsers.Select(b => b.Name)) + "‏"
+                : string.Join(", ", browsers.Select(b => b.Name));
+
+        var visibleOwner = owner is { IsVisible: true } ? owner : null;
+        var w = new Window
+        {
+            Title = Loc.T("autoinstall.offer.title"),
+            FlowDirection = Loc.FlowDirection,
+            Width = 500,
+            SizeToContent = SizeToContent.Height,
+            ResizeMode = ResizeMode.NoResize,
+            WindowStartupLocation = visibleOwner != null ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen,
+            ShowInTaskbar = visibleOwner == null,
+            Style = Application.Current?.TryFindResource("GdmWindow") as Style,
+        };
+        w.SetResourceReference(Control.BackgroundProperty, "Surface");
+        if (visibleOwner != null) w.Owner = visibleOwner;
+        AutomationProperties.SetAutomationId(w, "FirstRunExtensionOfferDialog");
+
+        var panel = new StackPanel { Margin = new Thickness(24) };
+
+        var head = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
+        try
+        {
+            head.Children.Add(new Image
+            {
+                Source = new BitmapImage(new Uri("pack://application:,,,/Assets/gdm.png")),
+                Width = 44,
+                Height = 44,
+                VerticalAlignment = VerticalAlignment.Top,
+            });
+        }
+        catch { /* pack URI unavailable in headless tests */ }
+
+        var titles = new StackPanel { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        titles.Children.Add(new TextBlock
+        {
+            Text = Loc.T("autoinstall.offer.heading"),
+            FontSize = 17,
+            FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        head.Children.Add(titles);
+        panel.Children.Add(head);
+
+        var body = new TextBlock
+        {
+            Text = Loc.T("autoinstall.offer.body", names),
+            TextWrapping = TextWrapping.Wrap,
+        };
+        body.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        panel.Children.Add(body);
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 20, 0, 0),
+        };
+
+        var installBtn = new Button
+        {
+            Name = "InstallNowBtn",
+            Content = Loc.T("autoinstall.offer.install_now"),
+            IsDefault = true,
+            MinWidth = 120,
+        };
+        installBtn.SetResourceReference(FrameworkElement.StyleProperty, "Primary");
+        AutomationProperties.SetAutomationId(installBtn, "FirstRunOfferInstallNowBtn");
+        installBtn.Click += (_, _) => { onChoice(true); w.Close(); };
+
+        var laterBtn = new Button
+        {
+            Name = "LaterBtn",
+            Content = Loc.T("autoinstall.offer.later"),
+            IsCancel = true,
+            MinWidth = 100,
+            Margin = new Thickness(8, 0, 0, 0),
+        };
+        AutomationProperties.SetAutomationId(laterBtn, "FirstRunOfferLaterBtn");
+        laterBtn.Click += (_, _) => { onChoice(false); w.Close(); };
+
+        buttons.Children.Add(installBtn);
+        buttons.Children.Add(laterBtn);
+        panel.Children.Add(buttons);
+
+        w.Content = panel;
+        return w;
+    }
+}

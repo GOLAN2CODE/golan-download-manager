@@ -88,10 +88,43 @@ public sealed class OneDriveResolver : IHostResolver
         using var req = new HttpRequestMessage(HttpMethod.Get, rewritten);
         req.Headers.Range = new RangeHeaderValue(0, 0);
         using var resp = await HostResolvers.SendFollowHttpsAsync(http, req, ct).ConfigureAwait(false);
+        if (resp.StatusCode is HttpStatusCode.RequestedRangeNotSatisfiable
+            or HttpStatusCode.BadRequest
+            or HttpStatusCode.Forbidden
+            or HttpStatusCode.MethodNotAllowed
+            or HttpStatusCode.NotImplemented)
+        {
+            using var plainReq = new HttpRequestMessage(HttpMethod.Get, rewritten);
+            using var plainResp = await HostResolvers.SendFollowHttpsAsync(http, plainReq, ct).ConfigureAwait(false);
+            if (!plainResp.IsSuccessStatusCode) return null;
+            var finalPlain = plainResp.RequestMessage?.RequestUri ?? rewritten;
+            var (fnPlain, szPlain) = HostResolvers.ReadResponseMeta(plainResp, finalPlain);
+            return new ResolvedLink(finalPlain, fnPlain, szPlain, HostResolvers.EmptyHeaders);
+        }
+        if (resp.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.NotFound
+            && !u.Host.EndsWith(".sharepoint.com", StringComparison.OrdinalIgnoreCase))
+        {
+            var directDownloadUri = AppendDownloadQuery(u);
+            using var fbReq = new HttpRequestMessage(HttpMethod.Get, directDownloadUri);
+            using var fbResp = await HostResolvers.SendFollowHttpsAsync(http, fbReq, ct).ConfigureAwait(false);
+            if (!fbResp.IsSuccessStatusCode) return null;
+            var fbMime = fbResp.Content.Headers.ContentType?.MediaType ?? "";
+            if (string.Equals(fbMime, "text/html", StringComparison.OrdinalIgnoreCase)) return null;
+            var fbFinal = fbResp.RequestMessage?.RequestUri ?? directDownloadUri;
+            var (fbName, fbSize) = HostResolvers.ReadResponseMeta(fbResp, fbFinal);
+            return new ResolvedLink(fbFinal, fbName, fbSize, HostResolvers.EmptyHeaders);
+        }
         if (!resp.IsSuccessStatusCode) return null;
 
         var finalUri = resp.RequestMessage?.RequestUri ?? rewritten;
         var (fileName, size) = HostResolvers.ReadResponseMeta(resp, finalUri);
         return new ResolvedLink(finalUri, fileName, size, HostResolvers.EmptyHeaders);
+    }
+
+    static Uri AppendDownloadQuery(Uri u)
+    {
+        var q = u.Query.TrimStart('?');
+        var nextQ = string.IsNullOrEmpty(q) ? "download=1" : q + "&download=1";
+        return new UriBuilder(u) { Scheme = Uri.UriSchemeHttps, Port = -1, Query = nextQ }.Uri;
     }
 }

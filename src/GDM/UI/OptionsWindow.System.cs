@@ -8,10 +8,13 @@ public partial class OptionsWindow
 {
     StackPanel RemotePage()
     {
-        var p = Page(Loc.T($"win.options.remote.title"), Loc.T($"win.options.remote.note"));
+        var p = Page(Loc.T("win.options.remote.title"), Loc.T("win.options.remote.note"));
+        var enableCheck = Check(Loc.T("remote.enable"), () => _working.RemoteEnabled, v => _working.RemoteEnabled = v);
+        var bindBox = Text(_working.RemoteBindAddress, v => _working.RemoteBindAddress = v, true);
+        var portBox = Number(_working.RemotePort, v => _working.RemotePort = v, 1024, 65535);
         var openRemoteBtn = new Button
         {
-            Content = Loc.T($"win.options.remote.open_window"),
+            Content = Loc.T("win.options.remote.open_window"),
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 8, 0, 0)
         };
@@ -24,13 +27,16 @@ public partial class OptionsWindow
             _working.RemoteDevices = _manager.Settings.RemoteDevices
                 .Select(d => new PairedDevice { Id = d.Id, Name = d.Name, TokenHash = d.TokenHash, CreatedAt = d.CreatedAt, LastSeenAt = d.LastSeenAt })
                 .ToList();
+            enableCheck.IsChecked = _working.RemoteEnabled;
+            bindBox.Text = _working.RemoteBindAddress;
+            portBox.Text = _working.RemotePort.ToString();
         };
         p.Children.Add(Card(
-            Check(Loc.T($"remote.enable"), () => _working.RemoteEnabled, v => _working.RemoteEnabled = v),
-            Label(Loc.T($"remote.interface")),
-            Text(_working.RemoteBindAddress, v => _working.RemoteBindAddress = v, true),
-            Label(Loc.T($"remote.port")),
-            Number(_working.RemotePort, v => _working.RemotePort = v, 1024, 65535),
+            enableCheck,
+            Label(Loc.T("remote.interface")),
+            bindBox,
+            Label(Loc.T("remote.port")),
+            portBox,
             openRemoteBtn));
         return p;
     }
@@ -55,10 +61,32 @@ public partial class OptionsWindow
         };
         checkNowBtn.Click += async (_, _) =>
         {
-            _manager.Settings.UpdateFeedUrl = _working.UpdateFeedUrl.Trim();
-            _manager.Settings.CheckForUpdates = _working.CheckForUpdates;
-            if (App.Instance != null)
-                await App.Instance.CheckForUpdatesAsync(interactive: true, owner: this);
+            checkNowBtn.IsEnabled = false;
+            var prevFeed = _manager.Settings.UpdateFeedUrl;
+            var prevAuto = _manager.Settings.CheckForUpdates;
+            try
+            {
+                _manager.Settings.UpdateFeedUrl = _working.UpdateFeedUrl.Trim();
+                _manager.Settings.CheckForUpdates = _working.CheckForUpdates;
+                if (App.Instance != null)
+                    await App.Instance.CheckForUpdatesAsync(interactive: true, owner: this);
+                _working.LastUpdateCheck = _manager.Settings.LastUpdateCheck;
+                string updatedStr = _working.LastUpdateCheck is { } updatedDt
+                    ? updatedDt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                    : Loc.T("win.options.updates.never");
+                lastCheckLabel.Text = Loc.T("win.options.updates.last_check", updatedStr);
+            }
+            finally
+            {
+                // Saved while the check was running: the saved values stand. Putting the old ones back would undo
+                // the save in memory, and the next save anywhere would write them to disk.
+                if (DialogResult != true)
+                {
+                    _manager.Settings.UpdateFeedUrl = prevFeed;
+                    _manager.Settings.CheckForUpdates = prevAuto;
+                }
+                checkNowBtn.IsEnabled = true;
+            }
         };
         var installBtn = new Button
         {

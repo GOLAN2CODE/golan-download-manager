@@ -13,10 +13,10 @@ public static class Confirm
         var w = Shell(owner, title);
         bool result = false;
         var panel = new StackPanel { Margin = new Thickness(24) };
-        panel.Children.Add(new TextBlock { Text = title, FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
-        panel.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["Muted"], MaxWidth = 380 });
+        panel.Children.Add(new TextBlock { Text = title, FontSize = 16, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Margin = new Thickness(0, 0, 0, 8) });
+        panel.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["Muted"], MaxWidth = 420 });
         var buttons = Buttons(out var ok, out var cancel, yes, Loc.T("main.dialog.cancel"));
-        if (danger) { ok.Background = (Brush)Application.Current.Resources["Danger"]; ok.BorderBrush = ok.Background; ok.Foreground = (Brush)Application.Current.Resources["OnDanger"]; }
+        if (danger) ok.Style = (Style)Application.Current.Resources["DangerButton"];
         ok.Click += (_, _) => { result = true; w.Close(); };
         cancel.Click += (_, _) => w.Close();
         panel.Children.Add(buttons);
@@ -29,8 +29,8 @@ public static class Confirm
     {
         var w = Shell(owner, title);
         var panel = new StackPanel { Margin = new Thickness(24) };
-        panel.Children.Add(new TextBlock { Text = title, FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
-        panel.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["Muted"], MaxWidth = 380 });
+        panel.Children.Add(new TextBlock { Text = title, FontSize = 16, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Margin = new Thickness(0, 0, 0, 8) });
+        panel.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["Muted"], MaxWidth = 420 });
         var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 20, 0, 0) };
         var ok = new Button { Name = "OkBtn", Content = okText ?? Loc.T("main.dialog.ok"), Style = (Style)Application.Current.Resources["Primary"], IsDefault = true, IsCancel = true, MinWidth = 90 };
         ok.Click += (_, _) => w.Close();
@@ -42,17 +42,18 @@ public static class Confirm
 
     internal static Window Shell(Window? owner, string title)
     {
+        var visibleOwner = owner is { IsVisible: true } ? owner : null;
         var w = new Window
         {
             Title = title,
             SizeToContent = SizeToContent.WidthAndHeight,
             ResizeMode = ResizeMode.NoResize,
-            WindowStartupLocation = owner != null ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen,
-            ShowInTaskbar = owner == null,
+            WindowStartupLocation = visibleOwner != null ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen,
+            ShowInTaskbar = visibleOwner == null,
             Style = (Style)Application.Current.Resources["GdmWindow"],
         };
         w.SetResourceReference(Control.BackgroundProperty, "Surface");
-        if (owner != null && owner.IsVisible) w.Owner = owner;
+        if (visibleOwner != null) w.Owner = visibleOwner;
         return w;
     }
 
@@ -69,14 +70,25 @@ public static class Confirm
 
 public static class InputDialog
 {
+    public static FlowDirection GetInputFlowDirection(string? text, string? initial)
+    {
+        if (!string.IsNullOrEmpty(text))
+            return TextDir.IsRtl(text) ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
+        if (!string.IsNullOrEmpty(initial))
+            return TextDir.IsRtl(initial) ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
+        return Loc.FlowDirection;
+    }
+
     public static string? Ask(Window? owner, string title, string text, string initial)
     {
         var w = Confirm.Shell(owner, title);
         string? result = null;
         var panel = new StackPanel { Margin = new Thickness(24), Width = 460 };
-        panel.Children.Add(new TextBlock { Text = title, FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
+        panel.Children.Add(new TextBlock { Text = title, FontSize = 16, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
         panel.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["Muted"], Margin = new Thickness(0, 0, 0, 12) });
-        var box = new TextBox { Name = "InputBox", Text = initial, FlowDirection = FlowDirection.LeftToRight };
+        var box = new TextBox { Name = "InputBox", Text = initial, FlowDirection = GetInputFlowDirection(initial, initial) };
+        System.Windows.Automation.AutomationProperties.SetName(box, title);
+        box.TextChanged += (_, _) => box.FlowDirection = GetInputFlowDirection(box.Text, initial);
         panel.Children.Add(box);
         var buttons = Confirm.Buttons(out var ok, out var cancel, Loc.T("main.dialog.ok"), Loc.T("main.dialog.cancel"));
         ok.Click += (_, _) => { result = box.Text; w.Close(); };
@@ -110,13 +122,12 @@ public static class DeleteConfirm
         panel.Children.Add(files);
         panel.Children.Add(dont);
         var buttons = Confirm.Buttons(out var ok, out var cancel, Loc.T("main.delete.confirmBtn"), Loc.T("main.delete.noBtn"));
-        ok.Background = (Brush)Application.Current.Resources["Danger"];
-        ok.BorderBrush = ok.Background;
-        ok.Foreground = (Brush)Application.Current.Resources["OnDanger"];
+        ok.Style = (Style)Application.Current.Resources["DangerButton"];
         ok.Click += (_, _) => { result = (files.IsChecked == true, dont.IsChecked == true); w.Close(); };
         cancel.Click += (_, _) => w.Close();
         panel.Children.Add(buttons);
         w.Content = panel;
+        w.Loaded += (_, _) => { if (deleteFiles) cancel.Focus(); };
         w.ShowDialog();
         return result;
     }

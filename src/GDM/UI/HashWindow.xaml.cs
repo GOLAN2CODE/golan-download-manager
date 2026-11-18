@@ -11,17 +11,25 @@ public partial class HashWindow : Window
     readonly string _filePath;
     readonly CancellationTokenSource _cts = new();
     Dictionary<HashAlgorithmName, string> _results = [];
+    bool _started;
 
     public HashWindow(string filePath, string? expectedHash = null)
     {
         InitializeComponent();
         _filePath = filePath;
-        FileNameText.Text = Path.GetFileName(filePath);
+        var fileName = Path.GetFileName(filePath);
+        FileNameText.Text = fileName;
+        FileNameText.FlowDirection = TextDir.IsRtl(fileName) ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
         if (!string.IsNullOrWhiteSpace(expectedHash))
             CompareBox.Text = expectedHash.Trim();
 
-        Loaded += async (_, _) => await ComputeAllAsync();
-        Closed += (_, _) => { _cts.Cancel(); _cts.Dispose(); };
+        Loaded += async (_, _) =>
+        {
+            if (_started) return;
+            _started = true;
+            await ComputeAllAsync();
+        };
+        Closed += (_, _) => { try { _cts.Cancel(); _cts.Dispose(); } catch { /* already disposed */ } };
     }
 
     public HashWindow(DownloadItem item)
@@ -56,7 +64,8 @@ public partial class HashWindow : Window
         }
         catch (Exception ex)
         {
-            StatusLabel.Text = Loc.T($"hash.status.error", ex.Message);
+            StatusLabel.Foreground = TryFindResource("Danger") as Brush ?? Brushes.Transparent;
+            StatusLabel.Text = Loc.T("hash.status.error", FriendlyError.Format(ex));
         }
     }
 
@@ -74,20 +83,49 @@ public partial class HashWindow : Window
         if (string.IsNullOrEmpty(text)) return;
         try
         {
+            App.Instance?.MainView?.SuppressClipboard();
             Clipboard.SetText(text);
-            btn.Content = Loc.T($"hash.win.copied");
+            foreach (var b in new[] { CopyMd5Btn, CopySha1Btn, CopySha256Btn, CopySha512Btn })
+            {
+                if (b != null) b.Content = Loc.T("hash.win.copy");
+            }
+            btn.Content = Loc.T("hash.win.copied");
         }
-        catch (System.Runtime.InteropServices.ExternalException ex)
+        catch (Exception ex)
         {
             Log.Write("hash clipboard copy failed: " + ex.Message);
         }
+    }
+
+    public static string NormalizeExpectedHashInput(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        var s = raw.Trim();
+        if (HashSpec.TryParse(s, out _)) return s;
+
+        // Support "SHA256 = <hex>" or "<hex>  filename.iso" (sha256sum / CertUtil formats)
+        int eqIdx = s.IndexOf('=');
+        if (eqIdx > 0)
+        {
+            var lhs = s[..eqIdx].Trim();
+            var rhs = s[(eqIdx + 1)..].Trim();
+            int parenIdx = lhs.IndexOf('(');
+            if (parenIdx > 0) lhs = lhs[..parenIdx].Trim();
+            var candidate = $"{lhs}:{rhs}";
+            if (HashSpec.TryParse(candidate, out _)) return candidate;
+            if (HashSpec.TryParse(rhs, out _)) return rhs;
+        }
+
+        var firstToken = s.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+        if (HashSpec.TryParse(firstToken, out _)) return firstToken;
+        return s;
     }
 
     void CompareBox_TextChanged(object sender, TextChangedEventArgs e) => UpdateComparison();
 
     void UpdateComparison()
     {
-        var input = CompareBox.Text.Trim();
+        var input = NormalizeExpectedHashInput(CompareBox.Text);
         if (string.IsNullOrEmpty(input) || _results.Count == 0)
         {
             CompareResultText.Visibility = Visibility.Collapsed;
@@ -97,7 +135,7 @@ public partial class HashWindow : Window
         CompareResultText.Visibility = Visibility.Visible;
         if (!HashSpec.TryParse(input, out var spec) || spec == null)
         {
-            CompareResultText.Text = Loc.T($"hash.win.invalid_hash");
+            CompareResultText.Text = Loc.T("hash.win.invalid_hash");
             CompareResultText.Foreground = TryFindResource("Warning") as Brush ?? Brushes.Transparent;
             return;
         }
@@ -111,8 +149,8 @@ public partial class HashWindow : Window
         bool match = Integrity.VerifyHex(actualHex, input);
         var algoLabel = spec.Algorithm.Name ?? "SHA256";
         CompareResultText.Text = match
-            ? Loc.T($"hash.win.match", algoLabel)
-            : Loc.T($"hash.win.no_match", algoLabel);
+            ? Loc.T("hash.win.match", algoLabel)
+            : Loc.T("hash.win.no_match", algoLabel);
         CompareResultText.Foreground = TryFindResource(match ? "Success" : "Danger") as Brush
             ?? Brushes.Transparent;
     }

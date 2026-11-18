@@ -22,7 +22,7 @@ public sealed class BrowserGuideWindow : Window
     readonly TextBlock _summary = new() { TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold, FontSize = 14 };
     readonly TextBlock _devState = new() { FontWeight = FontWeights.SemiBold };
     readonly TextBlock _installState = new() { FontWeight = FontWeights.SemiBold };
-    readonly TextBlock _toast = new() { Foreground = Ui.Res("Muted"), Margin = new Thickness(0, 8, 0, 0) };
+    readonly TextBlock _toast = new() { Foreground = Ui.Res("Muted"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     readonly DateTime _openedUtc = DateTime.UtcNow;
     readonly List<BrowserIntegration.BrowserInfo> _installed;
@@ -30,15 +30,17 @@ public sealed class BrowserGuideWindow : Window
     public BrowserGuideWindow(string? preferExe = null)
     {
         Title = Loc.T("guide.title");
+        FlowDirection = Loc.FlowDirection;
         Width = 660;
         SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Style = (Style)Application.Current.Resources["GdmWindow"];
+        Style = Application.Current?.TryFindResource("GdmWindow") as Style;
         AutomationProperties.SetAutomationId(this, "BrowserGuideWindow");
 
-        _installed = BrowserIntegration.InstalledBrowsers().ToList();
-        BrowserIntegration.ExtractExtension(); // the folder must exist and be current before the user picks it
+        _installed = ExtensionAutoInstaller.InstalledSupportedBrowsers().ToList();
+        try { BrowserIntegration.ExtractExtension(); } // the folder must exist and be current before the user picks it
+        catch (Exception ex) { Log.Write("guide extract extension failed: " + ex.Message); }
 
         var root = new StackPanel { Margin = new Thickness(22, 18, 22, 18) };
         var head = new DockPanel();
@@ -57,11 +59,21 @@ public sealed class BrowserGuideWindow : Window
             return;
         }
 
+        var autoPanel = new ExtensionAutoInstallPanel(
+            openManualGuide: SelectBrowserByExe,
+            onCompleted: _ => Refresh(),
+            inlineManualGuide: true)
+        {
+            Margin = new Thickness(0, 14, 0, 0),
+        };
+        root.Children.Add(autoPanel);
+
         // Browser picker
         var browserRow = new DockPanel { Margin = new Thickness(0, 18, 0, 0) };
         browserRow.Children.Add(new TextBlock { Text = Loc.T("guide.browser"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0), FontWeight = FontWeights.SemiBold });
         foreach (var b in _installed) _browsers.Items.Add(b.Name);
         AutomationProperties.SetAutomationId(_browsers, "GuideBrowserCombo");
+        AutomationProperties.SetName(_browsers, Loc.T("guide.browser"));
         browserRow.Children.Add(_browsers);
         root.Children.Add(browserRow);
 
@@ -70,6 +82,7 @@ public sealed class BrowserGuideWindow : Window
         var profilePanel = new StackPanel();
         profilePanel.Children.Add(new TextBlock { Text = Loc.T("guide.profile"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
         AutomationProperties.SetAutomationId(_profiles, "GuideProfileList");
+        AutomationProperties.SetName(_profiles, Loc.T("guide.profile"));
         profilePanel.Children.Add(_profiles);
         profileCard.Child = profilePanel;
         _chromiumPanel.Children.Add(profileCard);
@@ -79,7 +92,8 @@ public sealed class BrowserGuideWindow : Window
         AutomationProperties.SetAutomationId(_summary, "GuideSummary");
         steps.Children.Add(_summary);
 
-        var open = new Button { Content = Loc.T("guide.openPage"), Style = (Style)Application.Current.Resources["Primary"], HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
+        var open = new Button { Content = Loc.T("guide.openPage"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
+        open.SetResourceReference(StyleProperty, "Primary");
         AutomationProperties.SetAutomationId(open, "GuideOpenPageBtn");
         open.Click += (_, _) => OpenPage();
         steps.Children.Add(Step(1, Loc.T("guide.step1"), open));
@@ -95,6 +109,7 @@ public sealed class BrowserGuideWindow : Window
         folder.Click += (_, _) => { if (!BrowserIntegration.OpenExtensionFolder()) _toast.Text = Loc.T("guide.openFailed"); };
         var step3Buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0), Children = { copy, folder } };
         var pathBox = new TextBox { Text = AppPaths.ExtensionDir, IsReadOnly = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Thickness(0, 6, 0, 0) };
+        AutomationProperties.SetName(pathBox, Loc.T("win.options.browsers.ext_dir"));
         steps.Children.Add(Step(3, Loc.T("guide.step3"), new StackPanel { Children = { pathBox, step3Buttons } }));
 
         AutomationProperties.SetAutomationId(_installState, "GuideInstallState");
@@ -106,7 +121,6 @@ public sealed class BrowserGuideWindow : Window
         AutomationProperties.SetAutomationId(copyAddress, "GuideCopyAddressBtn");
         copyAddress.Click += (_, _) => { if (Selected is { } b) CopyText(b.ExtensionsPage, Loc.T("guide.copied")); };
         steps.Children.Add(copyAddress);
-        steps.Children.Add(_toast);
         stepsCard.Child = steps;
         _chromiumPanel.Children.Add(stepsCard);
         root.Children.Add(_chromiumPanel);
@@ -116,18 +130,21 @@ public sealed class BrowserGuideWindow : Window
         var ff = new StackPanel();
         ff.Children.Add(new TextBlock { Text = Loc.T("guide.ff.heading"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         ff.Children.Add(new TextBlock { Text = Loc.T("guide.ff.note"), Foreground = Ui.Res("Muted"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
-        var ffOpen = new Button { Content = Loc.T("guide.ff.open"), Style = (Style)Application.Current.Resources["Primary"], HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
+        var ffOpen = new Button { Content = Loc.T("guide.ff.open"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
+        ffOpen.SetResourceReference(StyleProperty, "Primary");
         AutomationProperties.SetAutomationId(ffOpen, "GuideFirefoxOpenBtn");
         ffOpen.Click += (_, _) => OpenPage();
         ff.Children.Add(Step(1, Loc.T("guide.ff.step1"), ffOpen));
         var ffCopy = new Button { Content = Loc.T("guide.copyPath"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
         AutomationProperties.SetAutomationId(ffCopy, "GuideFirefoxCopyBtn");
         ffCopy.Click += (_, _) => CopyText(BrowserIntegration.FirefoxXpiPath, Loc.T("guide.copied"));
+        var ffPathBox = new TextBox { Text = BrowserIntegration.FirefoxXpiPath, IsReadOnly = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Thickness(0, 6, 0, 0) };
+        AutomationProperties.SetName(ffPathBox, Loc.T("win.options.browsers.firefox_xpi"));
         ff.Children.Add(Step(2, Loc.T("guide.ff.step2"), new StackPanel
         {
             Children =
             {
-                new TextBox { Text = BrowserIntegration.FirefoxXpiPath, IsReadOnly = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Thickness(0, 6, 0, 0) },
+                ffPathBox,
                 ffCopy,
             },
         }));
@@ -135,6 +152,9 @@ public sealed class BrowserGuideWindow : Window
         ffCard.Child = ff;
         _firefoxPanel.Children.Add(ffCard);
         root.Children.Add(_firefoxPanel);
+
+        AutomationProperties.SetAutomationId(_toast, "GuideToastText");
+        root.Children.Add(_toast);
 
         root.Children.Add(new TextBlock { Text = Loc.T("guide.honest"), Foreground = Ui.Res("Muted"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0), FontSize = 12 });
         root.Children.Add(CloseButton());
@@ -169,6 +189,15 @@ public sealed class BrowserGuideWindow : Window
 
     static bool IsFirefox(BrowserIntegration.BrowserInfo b) => ExeName(b) == "firefox.exe";
 
+    void SelectBrowserByExe(string? exe)
+    {
+        if (string.IsNullOrWhiteSpace(exe))
+            return;
+        int idx = _installed.FindIndex(b => string.Equals(ExeName(b), exe, StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0)
+            _browsers.SelectedIndex = idx;
+    }
+
     void LoadProfiles(BrowserIntegration.BrowserInfo b)
     {
         _profiles.Items.Clear();
@@ -182,7 +211,12 @@ public sealed class BrowserGuideWindow : Window
             _profiles.Items.Add(item);
         }
         if (_profiles.Items.Count == 0)
-            _profiles.Items.Add(new ListBoxItem { Content = Loc.T("guide.defaultProfile"), Tag = new BrowserProfile("", Loc.T("guide.defaultProfile"), "", true) });
+        {
+            var defLabel = Loc.T("guide.defaultProfile");
+            var defItem = new ListBoxItem { Content = defLabel, Tag = new BrowserProfile("", defLabel, "", true) };
+            AutomationProperties.SetName(defItem, defLabel);
+            _profiles.Items.Add(defItem);
+        }
         _profiles.SelectedIndex = 0;
         Refresh();
     }
@@ -236,7 +270,7 @@ public sealed class BrowserGuideWindow : Window
     {
         try
         {
-            App.Instance.MainView?.SuppressClipboard();
+            App.Instance?.MainView?.SuppressClipboard();
             Clipboard.SetText(text);
             if (confirmation != null) _toast.Text = confirmation;
         }
@@ -247,7 +281,12 @@ public sealed class BrowserGuideWindow : Window
         }
     }
 
-    static Border Card() => new() { Style = (Style)Application.Current.Resources["Card"], Margin = new Thickness(0, 12, 0, 0) };
+    static Border Card()
+    {
+        var b = new Border { Margin = new Thickness(0, 12, 0, 0) };
+        b.SetResourceReference(StyleProperty, "Card");
+        return b;
+    }
 
     static UIElement Step(int number, string text, UIElement extra)
     {

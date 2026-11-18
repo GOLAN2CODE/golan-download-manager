@@ -357,6 +357,8 @@
   "win.batch.chip.programs": "Programs",
   "win.batch.chip.images": "Images",
   "win.batch.counter_format": "Selected {0} of {1}",
+  "win.batch.limit_title": "Too Many Links",
+  "win.batch.limit_msg": "Only the first {0} links were taken. Add the rest in another batch.",
   "win.batch.no_selection_title": "Nothing Selected",
   "win.batch.no_selection_msg": "Please select at least one link to download.",
   "win.batch.done_title": "Batch Added",
@@ -424,6 +426,8 @@
   "win.video.direct_header_format": "Direct media links detected on page ({0})",
   "win.video.playlist_count_format": "{0} video(s)",
   "win.video.err_no_playlist_item": "Please select at least one video from the playlist.",
+  "win.video.update_tool": "Update Video Tool",
+  "win.video.updating_tool": "Updating video tool…",
 
   "win.columns.title": "Customize Columns",
   "win.columns.ok": "OK",
@@ -465,5 +469,21 @@
   "win.zip.error": "Could not read archive: {0}",
 
   "win.droptarget.hide": "Hide",
-  "win.droptarget.open": "Open Golan"
+  "win.droptarget.open": "Open Golan",
+  "win.options.sounds.play_failed": "Could not play the selected sound file: {0}",
+  "win.options.connection.server_max_invalid": "Please enter a number between 1 and 32 for max connections.",
+  "win.options.save.invalid_root": "Default download folder is invalid or not writable: {0}",
+  "win.grabber.empty_results": "Exploring pages… matching files will appear here as they are found.",
+  "win.grabber.empty_done": "No matching files were found for the selected filters.",
+  "win.scheduler.empty_queue": "There are no files in this queue right now.",
+  "win.batch.err_invalid_folder": "Please choose a valid local save folder first.",
+  "win.batchpattern.password_tag": "Password",
+  "win.props.err_invalid_url": "Please enter a valid download URL (http, https, ftp, or magnet).",
+  "win.props.err_empty_name": "Please enter a valid file name.",
+  "win.find.err_no_scope": "Select at least one field to search in.",
+  "win.options.sounds.file_missing": "The selected sound file does not exist. Choose a valid WAV file or leave the field blank for the default sound.",
+  "win.options.save.invalid_temp": "Temporary folder is invalid or not writable: {0}",
+  "win.batch.empty_paste": "Paste links above, then click \"Read Links\", or click \"Download Selected\" directly.",
+  "win.batch.empty_filter": "No links match the current filters.",
+  "win.scheduler.err_empty_name": "Enter a queue name."
 }

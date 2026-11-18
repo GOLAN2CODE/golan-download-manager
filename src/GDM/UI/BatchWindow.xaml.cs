@@ -85,7 +85,7 @@ public partial class BatchWindow : Window
         public string CookieHost { get; set; } = "";
 
         bool _selected;
-        public bool Selected { get => _selected; set { if (Set(ref _selected, value)) OnPropertyChanged(nameof(Selected)); } }
+        public bool Selected { get => _selected; set => Set(ref _selected, value); }
     }
 
     // ---------- Link parsing ----------
@@ -111,54 +111,75 @@ public partial class BatchWindow : Window
         _rows.Add(new BatchLinkRow { Url = url, LinkText = text, FileName = fileName, Category = cat, Cookies = safeCookies, CookieHost = cookieHost });
     }
 
-    static readonly Regex UrlRegex = new(@"https?://[^\s\)\]\}\>\""\']+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    public const int MaxBatchExpandedLinks = 10_000;
+    static readonly Regex UrlRegex = new(@"(?:https?|ftps?)://[^\s\)\]\}\>\""\']+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     static readonly Regex RangeRegex = new(@"^(.+)\[(\d+)-(\d+)\](.+)$", RegexOptions.Compiled);
+
+    public static List<(string Url, string Text)> ParseBatchInput(string? text, int maxItems = MaxBatchExpandedLinks)
+    {
+        var urls = new List<(string Url, string Text)>();
+        if (string.IsNullOrWhiteSpace(text) || maxItems <= 0)
+            return urls;
+
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (urls.Count >= maxItems) break;
+            var trimmed = line.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed)) continue;
+
+            // Check for range pattern: https://site/file[01-20].zip
+            var rangeMatch = RangeRegex.Match(trimmed);
+            if (rangeMatch.Success
+                && int.TryParse(rangeMatch.Groups[2].Value, out int start)
+                && int.TryParse(rangeMatch.Groups[3].Value, out int end)
+                && start <= end)
+            {
+                var prefix = rangeMatch.Groups[1].Value;
+                var suffix = rangeMatch.Groups[4].Value;
+                var pad = Math.Min(16, rangeMatch.Groups[2].Value.Length);
+                var sample = prefix + start.ToString().PadLeft(pad, '0') + suffix;
+                if (FileNames.IsNetworkDownloadUrl(sample))
+                {
+                    for (long i = start; i <= end && urls.Count < maxItems; i++)
+                    {
+                        var num = i.ToString().PadLeft(pad, '0');
+                        var expanded = prefix + num + suffix;
+                        if (FileNames.IsNetworkDownloadUrl(expanded))
+                            urls.Add((expanded, ""));
+                    }
+                    continue;
+                }
+            }
+
+            // Extract all URLs from the line
+            bool matchedAny = false;
+            foreach (Match m in UrlRegex.Matches(trimmed))
+            {
+                if (urls.Count >= maxItems) break;
+                var candidate = m.Value.TrimEnd('.', ',', ';');
+                if (FileNames.IsNetworkDownloadUrl(candidate))
+                {
+                    urls.Add((candidate, trimmed));
+                    matchedAny = true;
+                }
+            }
+            if (!matchedAny && urls.Count < maxItems && FileNames.IsNetworkDownloadUrl(trimmed))
+            {
+                urls.Add((trimmed, ""));
+            }
+        }
+        return urls;
+    }
 
     void ParseLinks_Click(object sender, RoutedEventArgs e)
     {
         var text = PasteBox.Text;
         if (string.IsNullOrWhiteSpace(text)) return;
 
-        var urls = new List<(string Url, string Text)>();
-        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var trimmed = line.Trim();
-            if (string.IsNullOrWhiteSpace(trimmed)) continue;
-
-            // Check for range pattern: https://site/file[01-20].zip
-            var rangeMatch = RangeRegex.Match(trimmed);
-            if (rangeMatch.Success)
-            {
-                var prefix = rangeMatch.Groups[1].Value;
-                var start = int.Parse(rangeMatch.Groups[2].Value);
-                var end = int.Parse(rangeMatch.Groups[3].Value);
-                var suffix = rangeMatch.Groups[4].Value;
-                var pad = rangeMatch.Groups[2].Value.Length;
-
-                for (int i = start; i <= end; i++)
-                {
-                    var num = i.ToString().PadLeft(pad, '0');
-                    urls.Add((prefix + num + suffix, ""));
-                }
-            }
-            else
-            {
-                // Extract all URLs from the line
-                foreach (Match m in UrlRegex.Matches(trimmed))
-                {
-                    urls.Add((m.Value, trimmed));
-                }
-                // If no URL found, treat whole line as potential URL
-                if (!UrlRegex.IsMatch(trimmed) && FileNames.IsHttpUrl(trimmed))
-                {
-                    urls.Add((trimmed, ""));
-                }
-            }
-        }
-
+        var urls = ParseBatchInput(text);
         if (urls.Count == 0)
         {
-            App.Instance.Notify(Loc.T("win.batch.no_links_title"), Loc.T("win.batch.no_links_msg"), error: true);
+            App.Instance?.Notify(Loc.T("win.batch.no_links_title"), Loc.T("win.batch.no_links_msg"), error: true);
             return;
         }
 
@@ -170,9 +191,11 @@ public partial class BatchWindow : Window
         PasteHeader.Visibility = Visibility.Collapsed;
         FilterBar.Visibility = Visibility.Visible;
         SelectButtons.Visibility = Visibility.Visible;
-        ApplyDefaultSelection();
+        ApplyDefaultSelection(selectAllByDefault: true);
         BuildFilterChips();
         UpdateCounter();
+        if (urls.Count >= MaxBatchExpandedLinks)
+            App.Instance?.Notify(Loc.T("win.batch.limit_title"), Loc.T("win.batch.limit_msg", MaxBatchExpandedLinks));
     }
 
     void PasteFromClipboard_Click(object sender, RoutedEventArgs e)
@@ -205,7 +228,7 @@ public partial class BatchWindow : Window
             Loc.T("win.batch.chip.programs"),
             Loc.T("win.batch.chip.images")
         };
-        var catKeys = new[] { "all", "video", "music", "compressed", "documents", "programs", "general" }; // general for images
+        var catKeys = new[] { "all", "video", "music", "compressed", "documents", "programs", "images" };
 
         for (int i = 0; i < categories.Length; i++)
         {
@@ -239,6 +262,7 @@ public partial class BatchWindow : Window
             }
             _activeFilterCategory = key;
             _view.Refresh();
+            UpdateEmptyState();
         }
     }
 
@@ -256,6 +280,7 @@ public partial class BatchWindow : Window
     {
         _activeTextFilter = FilterBox.Text?.Trim().ToLowerInvariant() ?? "";
         _view.Refresh();
+        UpdateEmptyState();
     }
 
     void HideFilter_Changed(object sender, RoutedEventArgs e)
@@ -285,10 +310,9 @@ public partial class BatchWindow : Window
         if (_activeFilterCategory != "all")
         {
             var catKey = _activeFilterCategory;
-            if (catKey == "general")
+            if (catKey == "images")
             {
-                // Images: jpg png gif webp
-                if (ext != "jpg" && ext != "jpeg" && ext != "png" && ext != "gif" && ext != "webp")
+                if (!ImageExtensions.Contains(ext))
                     return false;
             }
             else if (row.Category != catKey)
@@ -312,13 +336,13 @@ public partial class BatchWindow : Window
 
     // ---------- Selection ----------
 
-    void ApplyDefaultSelection()
+    void ApplyDefaultSelection(bool selectAllByDefault = false)
     {
         var extList = _manager.Settings.ExtensionList.ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var row in _rows)
         {
             var ext = Path.GetExtension(row.FileName).TrimStart('.').ToLowerInvariant();
-            row.Selected = _pasteMode || extList.Contains(ext);
+            row.Selected = selectAllByDefault || _pasteMode || extList.Contains(ext);
             if (HideWebBox?.IsChecked == true && WebExtensions.Contains(ext)) row.Selected = false;
             if (HideImagesBox?.IsChecked == true && ImageExtensions.Contains(ext)) row.Selected = false;
             if (HideDuplicatesBox?.IsChecked == true && _manager.FindDuplicate(row.Url) != null) row.Selected = false;
@@ -347,6 +371,34 @@ public partial class BatchWindow : Window
     {
         int selected = _rows.Count(r => r.Selected);
         CounterText.Text = Loc.T("win.batch.counter_format", selected, _rows.Count);
+        UpdateEmptyState();
+    }
+
+    void UpdateEmptyState()
+    {
+        if (EmptyLinksText == null) return;
+        if (_rows.Count == 0)
+        {
+            EmptyLinksText.Text = Loc.T("win.batch.empty_paste");
+            EmptyLinksText.Visibility = Visibility.Visible;
+            return;
+        }
+        bool anyVisible = _rows.Any(FilterPredicate);
+        EmptyLinksText.Text = Loc.T("win.batch.empty_filter");
+        EmptyLinksText.Visibility = anyVisible ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    public static string FormatBatchRename(string pattern, string originalFileName, int oneBasedIndex)
+    {
+        var pat = pattern.Trim();
+        var stem = pat.Contains('*') ? pat.Replace("*", oneBasedIndex.ToString()) : $"{pat}_{oneBasedIndex}";
+        if (string.IsNullOrEmpty(Path.GetExtension(pat)))
+        {
+            var origExt = Path.GetExtension(originalFileName);
+            if (!string.IsNullOrEmpty(origExt))
+                stem += origExt;
+        }
+        return FileNames.Sanitize(stem);
     }
 
     // ---------- Save folder ----------
@@ -363,7 +415,7 @@ public partial class BatchWindow : Window
         {
             Title = Loc.T("win.batch.browse_title")
         };
-        if (dlg.ShowDialog() == true)
+        if (dlg.ShowDialog(this) == true)
         {
             _customFolder = dlg.FolderName;
             CustomFolderBox.Text = dlg.FolderName;
@@ -378,13 +430,29 @@ public partial class BatchWindow : Window
 
     void ProcessSelected(bool startQueue)
     {
+        if (_pasteMode && _rows.Count == 0 && !string.IsNullOrWhiteSpace(PasteBox.Text))
+        {
+            ParseLinks_Click(this, new RoutedEventArgs());
+            if (_rows.Count == 0)
+                return;
+        }
         var selectedRows = _rows.Where(r => r.Selected).ToList();
         if (selectedRows.Count == 0)
         {
-            App.Instance.Notify(Loc.T("win.batch.no_selection_title"), Loc.T("win.batch.no_selection_msg"), error: true);
+            App.Instance?.Notify(Loc.T("win.batch.no_selection_title"), Loc.T("win.batch.no_selection_msg"), error: true);
             return;
         }
-        var pick = App.Instance.PickQueue(this, selectedRows.Count);
+        var customFolder = CustomFolderBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(customFolder)) customFolder = _customFolder;
+        if (CustomFolderRadio.IsChecked == true)
+        {
+            if (string.IsNullOrWhiteSpace(customFolder) || !AddDownloadWindow.IsAllowedFolder(customFolder, _manager.Settings))
+            {
+                Confirm.Info(this, Loc.T("win.batch.title"), Loc.T("win.batch.err_invalid_folder"));
+                return;
+            }
+        }
+        var pick = App.Instance?.PickQueue(this, selectedRows.Count);
         if (pick == null) return;
 
         DownloadSelectedBtn.IsEnabled = false;
@@ -393,8 +461,6 @@ public partial class BatchWindow : Window
 
         int added = 0;
         int skipped = 0;
-        var customFolder = CustomFolderBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(customFolder)) customFolder = _customFolder;
 
         foreach (var row in selectedRows)
         {
@@ -402,11 +468,15 @@ public partial class BatchWindow : Window
             {
                 var item = _manager.CreateHttp(row.Url, _referrer, row.Cookies, _userAgent, row.FileName);
                 if (!string.IsNullOrEmpty(row.CookieHost)) item.CookieHost = row.CookieHost;
-                item.NameLocked = true;
+                bool hasExplicitExt = !string.IsNullOrEmpty(Path.GetExtension(row.FileName));
+                if (hasExplicitExt) item.NameLocked = true;
                 if (DescriptionBox.IsChecked == true) item.Description = row.LinkText;
                 if (HideDuplicatesBox.IsChecked == true && _manager.FindDuplicate(item.Url) != null) { skipped++; continue; }
-                if (RenameBox.IsChecked == true && RenamePatternBox.Text.Contains('*'))
-                    item.FileName = FileNames.Sanitize(RenamePatternBox.Text.Replace("*", (added + 1).ToString()));
+                if (RenameBox.IsChecked == true && !string.IsNullOrWhiteSpace(RenamePatternBox.Text))
+                {
+                    item.FileName = FormatBatchRename(RenamePatternBox.Text, row.FileName, added + 1);
+                    item.NameLocked = true;
+                }
 
                 if (CustomFolderRadio.IsChecked == true && !string.IsNullOrWhiteSpace(customFolder)) item.SaveDir = customFolder;
                 else if (OneCategoryRadio.IsChecked == true && CategoryCombo.SelectedItem is CategoryDef category)
@@ -429,7 +499,7 @@ public partial class BatchWindow : Window
             _manager.StartQueue(pick.Value.Queue);
         }
 
-        App.Instance.Notify(added > 0 ? Loc.T("win.batch.done_title") : Loc.T("win.batch.none_added_title"),
+        App.Instance?.Notify(added > 0 ? Loc.T("win.batch.done_title") : Loc.T("win.batch.none_added_title"),
             added > 0
                 ? Loc.T("win.batch.added_msg", added) + (skipped > 0 ? Loc.T("win.batch.skipped_suffix", skipped) : "")
                 : Loc.T("win.batch.all_duplicates_msg", skipped));

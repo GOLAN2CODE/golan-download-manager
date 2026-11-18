@@ -9,27 +9,31 @@ public partial class MainWindow
 {
     void Window_DragOver(object sender, DragEventArgs e)
     {
-        bool hasTorrentFile = DroppedTorrentFiles(e.Data).Count > 0;
+        bool hasTorrentFile = HasTorrentFileDrop(e.Data);
         bool hasUrl = e.Data.GetDataPresent(DataFormats.Text) || e.Data.GetDataPresent(DataFormats.UnicodeText) || e.Data.GetDataPresent("UniformResourceLocatorW");
         e.Effects = hasTorrentFile ? DragDropEffects.Copy : (hasUrl ? DragDropEffects.Link : DragDropEffects.None);
         e.Handled = true;
     }
 
+    static bool HasTorrentFileDrop(IDataObject data)
+        => data.GetDataPresent(DataFormats.FileDrop)
+           && data.GetData(DataFormats.FileDrop) is string[] files
+           && files.Any(f => !string.IsNullOrWhiteSpace(f) && f.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase));
+
     async void Window_Drop(object sender, DragEventArgs e)
     {
+        e.Handled = true;
         var torrentFiles = DroppedTorrentFiles(e.Data);
         if (torrentFiles.Count > 0)
         {
             foreach (var file in torrentFiles)
                 await App.Instance.OpenTorrentFileAsync(file, this);
-            e.Handled = true;
             return;
         }
 
         var text = DroppedUrl(e.Data);
-        if (!string.IsNullOrWhiteSpace(text) && (FileNames.IsHttpUrl(text) || MagnetValidator.IsMagnetUri(text)))
+        if (!string.IsNullOrWhiteSpace(text) && (FileNames.IsDownloadableUrl(text) || MagnetValidator.IsMagnetUri(text)))
             App.Instance.ShowAddUrl(text);
-        e.Handled = true;
     }
 
     public static IReadOnlyList<string> DroppedTorrentFiles(IDataObject data)

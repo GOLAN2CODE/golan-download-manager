@@ -28,7 +28,7 @@ public partial class QueuePickerWindow : Window
         var q = new QueueDef { Name = name.Trim() };
         _manager.Settings.Queues.Add(q);
         _manager.Settings.Save();
-        App.Instance.MainView?.RefreshCategories();
+        App.Instance?.MainView?.RefreshCategories();
         QueueBox.Items.Refresh();
         QueueBox.SelectedItem = q;
     }
@@ -46,11 +46,17 @@ public partial class QueuePickerWindow : Window
             _manager.Settings.ShowQueuePanelOnLater = false;
             _manager.Settings.Save();
         }
-        DialogResult = true;
+        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal)
+            DialogResult = true;
+        else
+            Close();
     }
 
     void Cancel_Click(object sender, RoutedEventArgs e)
     {
-        DialogResult = false;
+        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal)
+            DialogResult = false;
+        else
+            Close();
     }
 }

@@ -193,6 +193,41 @@
                 </Setter>
             </Style>
 
+            <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                <Setter Property="Background" Value="{DynamicResource Danger}"/>
+                <Setter Property="Foreground" Value="{DynamicResource OnDanger}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource Danger}"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="FocusVisualStyle" Value="{StaticResource BrandFocusVisual}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="1" CornerRadius="8" Padding="{TemplateBinding Padding}"
+                                    RenderTransformOrigin="0.5,0.5">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="b" Property="Background" Value="{DynamicResource DangerHover}"/>
+                                    <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource DangerHover}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="b" Property="Background" Value="{DynamicResource DangerPressed}"/>
+                                    <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource DangerPressed}"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource BrandInk}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.45"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- Toolbar button: glyph in Tag, caption in Content -->
             <Style x:Key="ToolButton" TargetType="Button">
                 <Setter Property="Background" Value="Transparent"/>
@@ -344,6 +379,7 @@
                                 <Grid>
                                     <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
                                     <TextBlock x:Name="hint" Text="{TemplateBinding Tag}" Foreground="{DynamicResource Muted}" Margin="11,0" VerticalAlignment="Center"
+                                               FlowDirection="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource TextDir}}"
                                                IsHitTestVisible="False" Visibility="Collapsed"/>
                                 </Grid>
                             </Border>
@@ -682,6 +718,21 @@
                                 <Border x:Name="PART_Track" Background="{TemplateBinding Background}" CornerRadius="4"/>
                                 <Border x:Name="PART_Indicator" Background="{TemplateBinding Foreground}" CornerRadius="4" HorizontalAlignment="Left"/>
                             </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsIndeterminate" Value="True">
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard x:Name="IndeterminatePulse">
+                                            <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                                <DoubleAnimation Storyboard.TargetName="PART_Indicator" Storyboard.TargetProperty="Opacity"
+                                                                 From="1.0" To="0.32" Duration="0:0:0.75"/>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.EnterActions>
+                                    <Trigger.ExitActions>
+                                        <StopStoryboard BeginStoryboardName="IndeterminatePulse"/>
+                                    </Trigger.ExitActions>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>

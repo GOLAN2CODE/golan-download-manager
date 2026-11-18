@@ -21,7 +21,11 @@ public partial class DuplicateWindow : Window
     {
         Choice = OverwriteRadio.IsChecked == true ? "overwrite" : ResumeRadio.IsChecked == true ? "resume" : "number";
         Remember = RememberBox.IsChecked == true;
-        DialogResult = true;
-        Close();
+        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal)
+            DialogResult = true;
+        else
+            Close();
     }
+
+    void Cancel_Click(object sender, RoutedEventArgs e) => Close();
 }

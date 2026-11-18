@@ -18,6 +18,7 @@ public sealed class RefreshAddressWindow : Window
     readonly string _page;
     readonly TextBlock _waiting;
     readonly DispatcherTimer _timer;
+    DispatcherTimer? _closeTimer;
     bool _done;
 
     public RefreshAddressWindow(DownloadItem item)
@@ -25,12 +26,13 @@ public sealed class RefreshAddressWindow : Window
         _item = item;
         _page = AddressRefresh.SourcePage(item);
         Title = Loc.T("refresh.title");
+        FlowDirection = Loc.FlowDirection;
         Width = 520;
         SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Topmost = true; // stays visible next to the browser while the user clicks
-        Style = (Style)Application.Current.Resources["GdmWindow"];
+        Style = Application.Current?.TryFindResource("GdmWindow") as Style;
         SetResourceReference(BackgroundProperty, "Surface");
         AutomationProperties.SetAutomationId(this, "RefreshAddressWindow");
 
@@ -60,19 +62,21 @@ public sealed class RefreshAddressWindow : Window
         var row = new WrapPanel { Margin = new Thickness(0, 20, 0, 0) };
         if (_page.Length > 0)
         {
-            var open = new Button { Content = Loc.T("refresh.open_page"), MinWidth = 120, Margin = new Thickness(0, 0, 8, 6) };
+            var open = new Button { Content = Loc.T("refresh.open_page"), MinWidth = 120, IsDefault = true, Margin = new Thickness(0, 0, 8, 6) };
             open.SetResourceReference(StyleProperty, "Primary");
             AutomationProperties.SetAutomationId(open, "RefreshOpenPageBtn");
             open.Click += (_, _) => OpenSourcePage();
             row.Children.Add(open);
         }
-        var paste = new Button { Content = Loc.T("refresh.paste"), MinWidth = 120, Margin = new Thickness(0, 0, 8, 6) };
+        var paste = new Button { Content = Loc.T("refresh.paste"), MinWidth = 120, IsDefault = _page.Length == 0, Margin = new Thickness(0, 0, 8, 6) };
         AutomationProperties.SetAutomationId(paste, "RefreshPasteBtn");
         paste.Click += (_, _) =>
         {
-            App.Instance.AddressRefresh.Cancel(_item.Id);
+            App.Instance?.AddressRefresh.Cancel(_item.Id);
+            var mainView = App.Instance?.MainView;
             Close();
-            MainWindow.AskNewAddress(App.Instance.MainView!, _item);
+            if (mainView != null)
+                MainWindow.AskNewAddress(mainView, _item);
         };
         row.Children.Add(paste);
         var cancel = new Button { Content = Loc.T("refresh.cancel"), MinWidth = 90, IsCancel = true, Margin = new Thickness(0, 0, 8, 6) };
@@ -87,27 +91,42 @@ public sealed class RefreshAddressWindow : Window
         UpdateWaiting();
         _timer.Start();
 
-        App.Instance.AddressRefreshed += OnRefreshed;
-        App.Instance.AddressRefresh.Ended += OnEnded;
+        if (App.Instance != null)
+        {
+            App.Instance.AddressRefreshed += OnRefreshed;
+            App.Instance.AddressRefresh.Ended += OnEnded;
+        }
         Closed += (_, _) =>
         {
             _timer.Stop();
-            App.Instance.AddressRefreshed -= OnRefreshed;
-            App.Instance.AddressRefresh.Ended -= OnEnded;
-            if (!_done) App.Instance.AddressRefresh.Cancel(_item.Id);
+            _closeTimer?.Stop();
+            if (App.Instance != null)
+            {
+                App.Instance.AddressRefreshed -= OnRefreshed;
+                App.Instance.AddressRefresh.Ended -= OnEnded;
+                if (!_done) App.Instance.AddressRefresh.Cancel(_item.Id);
+            }
         };
     }
 
     public void OpenSourcePage()
     {
-        if (_page.Length == 0) return;
-        try { Process.Start(new ProcessStartInfo(_page) { UseShellExecute = true }); }
-        catch (Exception ex) { Log.Write("refresh address: open page failed: " + ex.Message); }
+        if (!FileNames.IsHttpUrl(_page)) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(_page) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Write("refresh address: open page failed: " + ex.Message);
+            _waiting.Text = FriendlyError.Format(ex);
+            _waiting.SetResourceReference(TextBlock.ForegroundProperty, "Danger");
+        }
     }
 
     void UpdateWaiting()
     {
-        if (_done) return;
+        if (_done || App.Instance == null) return;
         var left = App.Instance.AddressRefresh.Remaining(DateTime.UtcNow);
         if (App.Instance.AddressRefresh.Pending(DateTime.UtcNow) != _item.Id || left <= TimeSpan.Zero)
         {
@@ -123,12 +142,13 @@ public sealed class RefreshAddressWindow : Window
         if (item.Id != _item.Id) return;
         Dispatcher.BeginInvoke(() =>
         {
+            if (_done) return;
             _done = true;
             _timer.Stop();
             _waiting.Text = Loc.T("refresh.done_inline");
-            var close = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
-            close.Tick += (_, _) => { close.Stop(); Close(); };
-            close.Start();
+            _closeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+            _closeTimer.Tick += (_, _) => { _closeTimer.Stop(); Close(); };
+            _closeTimer.Start();
         });
     }
 

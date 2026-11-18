@@ -17,11 +17,12 @@ public sealed class ActivationWindow : Window
     public ActivationWindow()
     {
         Title = Loc.T("license.title");
+        FlowDirection = Loc.FlowDirection;
         Width = 560;
         SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Style = (Style)Application.Current.Resources["GdmWindow"];
+        Style = Application.Current?.TryFindResource("GdmWindow") as Style;
         System.Windows.Automation.AutomationProperties.SetAutomationId(this, "ActivationWindow");
 
         var root = new StackPanel { Margin = new Thickness(26) };
@@ -36,7 +37,8 @@ public sealed class ActivationWindow : Window
         root.Children.Add(head);
 
         // Machine code
-        var machineCard = new Border { Style = (Style)Application.Current.Resources["Card"], Margin = new Thickness(0, 20, 0, 0) };
+        var machineCard = new Border { Margin = new Thickness(0, 20, 0, 0) };
+        machineCard.SetResourceReference(StyleProperty, "Card");
         var machinePanel = new StackPanel();
         machinePanel.Children.Add(new TextBlock { Text = Loc.T("license.machine.label"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
         var machineRow = new DockPanel();
@@ -50,11 +52,12 @@ public sealed class ActivationWindow : Window
             FontSize = 16, HorizontalContentAlignment = HorizontalAlignment.Center,
         };
         System.Windows.Automation.AutomationProperties.SetAutomationId(machineBox, "MachineCodeBox");
+        System.Windows.Automation.AutomationProperties.SetName(machineBox, Loc.T("license.machine.label"));
         copy.Click += (_, _) =>
         {
             try
             {
-                App.Instance.MainView?.SuppressClipboard();
+                App.Instance?.MainView?.SuppressClipboard();
                 Clipboard.SetText(code);
                 copy.Content = Loc.T("license.copied");
             }
@@ -68,7 +71,8 @@ public sealed class ActivationWindow : Window
         root.Children.Add(machineCard);
 
         // Activation key
-        var keyCard = new Border { Style = (Style)Application.Current.Resources["Card"], Margin = new Thickness(0, 14, 0, 0) };
+        var keyCard = new Border { Margin = new Thickness(0, 14, 0, 0) };
+        keyCard.SetResourceReference(StyleProperty, "Card");
         var keyPanel = new StackPanel();
         keyPanel.Children.Add(new TextBlock { Text = Loc.T("license.key.label"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
         _keyBox = new TextBox
@@ -77,9 +81,19 @@ public sealed class ActivationWindow : Window
             FlowDirection = FlowDirection.LeftToRight, FontFamily = new FontFamily("Consolas"),
         };
         System.Windows.Automation.AutomationProperties.SetAutomationId(_keyBox, "LicenseKeyBox");
+        System.Windows.Automation.AutomationProperties.SetName(_keyBox, Loc.T("license.key.label"));
+        _keyBox.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == System.Windows.Input.Key.Enter && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0)
+            {
+                e.Handled = true;
+                ActivateKey();
+            }
+        };
         keyPanel.Children.Add(_keyBox);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
-        var activate = new Button { Content = Loc.T("license.activate"), Style = (Style)Application.Current.Resources["Primary"], MinWidth = 110, IsDefault = true };
+        var activate = new Button { Content = Loc.T("license.activate"), MinWidth = 110, IsDefault = true };
+        activate.SetResourceReference(StyleProperty, "Primary");
         System.Windows.Automation.AutomationProperties.SetAutomationId(activate, "ActivateBtn");
         activate.Click += (_, _) => ActivateKey();
         var paste = new Button { Content = Loc.T("license.paste"), MinWidth = 80, Margin = new Thickness(8, 0, 0, 0) };
@@ -104,6 +118,7 @@ public sealed class ActivationWindow : Window
         root.Children.Add(close);
 
         Content = root;
+        Loaded += (_, _) => _keyBox.Focus();
         ShowStatus(LicenseGate.Status);
     }
 
@@ -115,7 +130,7 @@ public sealed class ActivationWindow : Window
         {
             _result.Text = Loc.T("license.result.ok");
             _result.Foreground = Ui.Res("Success");
-            App.Instance.OnLicenseChanged();
+            App.Instance?.OnLicenseChanged();
         }
         else
         {

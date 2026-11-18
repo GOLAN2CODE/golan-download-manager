@@ -19,6 +19,8 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
     readonly AppSettings _working;
     readonly Dictionary<string, StackPanel> _pages = [];
     readonly Dictionary<string, string> _passwordEdits = [];
+    readonly HashSet<Control> _invalidInputs = [];
+    readonly CancellationTokenSource _windowCts = new();
     Action? _ensureVideoVersionLoaded;
     bool _valid = true;
 
@@ -34,7 +36,11 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    sealed record NavEntry(string Key, string Label, string Glyph);
+    sealed record NavEntry(string Key, string Label, string Glyph)
+    {
+        // Screen readers read the item's ToString(): give them the visible label, not the record dump.
+        public override string ToString() => Label;
+    }
 
     public OptionsWindow(DownloadManager manager, string? startTab = null)
     {
@@ -57,6 +63,10 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
         BuildPages();
         var selected = NavList.Items.Cast<NavEntry>().FirstOrDefault(x => x.Key == startTab) ?? (NavEntry)NavList.Items[0];
         NavList.SelectedItem = selected;
+        Closed += (_, _) =>
+        {
+            try { _windowCts.Cancel(); _windowCts.Dispose(); } catch { /* already disposed */ }
+        };
     }
 
     void BuildNavigation()
@@ -172,6 +182,14 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
                             AutomationProperties.SetName(subTb, lastLabel);
                     }
                 }
+                else if (child is DockPanel directDp)
+                {
+                    foreach (UIElement sub in directDp.Children)
+                    {
+                        if (sub is TextBox subTb)
+                            AutomationProperties.SetName(subTb, lastLabel);
+                    }
+                }
                 else
                 {
                     AutomationProperties.SetName(child, lastLabel);
@@ -221,21 +239,34 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
         return t;
     }
 
+    void SetControlValid(Control control, bool valid)
+    {
+        if (valid)
+        {
+            _invalidInputs.Remove(control);
+            control.ClearValue(Control.BorderBrushProperty);
+        }
+        else
+        {
+            _invalidInputs.Add(control);
+            control.BorderBrush = Brush("Danger");
+        }
+        ValidateNumbers();
+    }
+
     TextBox Number(int value, Action<int> set, int min = 0, int max = int.MaxValue)
     {
         TextBox? t = null;
         t = Text(value.ToString(), s =>
         {
-            if (int.TryParse(s, out var n) && n >= min && n <= max)
+            if (int.TryParse(s.Trim(), out var n) && n >= min && n <= max)
             {
                 set(n);
-                t!.ClearValue(TextBox.BorderBrushProperty);
-                ValidateNumbers();
+                SetControlValid(t!, true);
             }
             else
             {
-                t!.BorderBrush = Brush("Danger");
-                IsValid = false;
+                SetControlValid(t!, false);
             }
         }, true, 110);
         t.LostFocus += (_, _) => ValidateNumbers();
@@ -244,7 +275,7 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
 
     void ValidateNumbers()
     {
-        IsValid = !FindVisualChildren<TextBox>(this).Any(x => x.BorderBrush == Brush("Danger"));
+        IsValid = _invalidInputs.Count == 0;
     }
 
     static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
@@ -338,7 +369,7 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
             }
         };
         var row = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(browse, Dock.Left);
+        DockPanel.SetDock(browse, Dock.Right);
         row.Children.Add(browse);
         row.Children.Add(box);
         return new Border { Child = row };
@@ -374,9 +405,10 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
         {
             return;
         }
-        if (string.IsNullOrWhiteSpace(_working.DownloadRoot))
+        if (string.IsNullOrWhiteSpace(_working.DownloadRoot) || !AddDownloadWindow.IsAllowedFolder(_working.DownloadRoot, _working))
         {
-            IsValid = false;
+            SelectNavTab("saveto");
+            Confirm.Info(this, Loc.T("win.options.title"), Loc.T("win.options.save.invalid_root", Loc.T("main.add.invalidFolder")));
             return;
         }
         if (!Directory.Exists(_working.DownloadRoot))
@@ -388,8 +420,33 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
             catch (Exception ex)
             {
                 Log.Write("options download root create failed: " + ex.Message);
-                IsValid = false;
+                SelectNavTab("saveto");
+                Confirm.Info(this, Loc.T("win.options.title"), Loc.T("win.options.save.invalid_root", FriendlyError.Format(ex)));
                 return;
+            }
+        }
+        _working.TempDir = _working.TempDir.Trim();
+        if (_working.TempDir.Length > 0)
+        {
+            if (!AddDownloadWindow.IsAllowedFolder(_working.TempDir, _working))
+            {
+                SelectNavTab("saveto");
+                Confirm.Info(this, Loc.T("win.options.title"), Loc.T("win.options.save.invalid_temp", Loc.T("main.add.invalidFolder")));
+                return;
+            }
+            if (!Directory.Exists(_working.TempDir))
+            {
+                try
+                {
+                    Directory.CreateDirectory(_working.TempDir);
+                }
+                catch (Exception ex)
+                {
+                    Log.Write("options temp dir create failed: " + ex.Message);
+                    SelectNavTab("saveto");
+                    Confirm.Info(this, Loc.T("win.options.title"), Loc.T("win.options.save.invalid_temp", FriendlyError.Format(ex)));
+                    return;
+                }
             }
         }
         if (_passwordEdits.TryGetValue("proxy", out var proxyPassword))
@@ -433,6 +490,12 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
         DialogResult = true;
     }
 
+    void SelectNavTab(string key)
+    {
+        if (NavList.Items.Cast<NavEntry>().FirstOrDefault(x => x.Key == key) is { } match)
+            NavList.SelectedItem = match;
+    }
+
     static readonly HashSet<string> SkippedSettingsProps =
     [
         nameof(AppSettings.Queues),
@@ -445,6 +508,11 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
         nameof(AppSettings.ShowDropTarget),
         nameof(AppSettings.DropTargetLeft),
         nameof(AppSettings.DropTargetTop),
+        nameof(AppSettings.RemoteDevices),
+        nameof(AppSettings.LastUpdateCheck),
+        nameof(AppSettings.FirstRun),
+        nameof(AppSettings.ExtensionOfferShown),
+        nameof(AppSettings.ExtensionOfferChoice),
     ];
 
     public static void CopySettings(AppSettings target, AppSettings source)
@@ -457,6 +525,9 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
             var value = property.GetValue(source);
             property.SetValue(target, value);
         }
+        // RemoteDevices is skipped on purpose: Options never edits paired devices, and the live list is read by the
+        // remote server on other threads. Rewriting it from the copy taken when Options opened could drop a device
+        // paired meanwhile, or change the list while the server walks it.
         target.Normalize();
     }
 

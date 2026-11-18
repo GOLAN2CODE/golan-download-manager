@@ -50,40 +50,48 @@
 
             <!-- Preview table -->
             <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0">
-                <DataGrid x:Name="CandidatesGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
-                          RowHeaderWidth="0" GridLinesVisibility="Horizontal" Background="{DynamicResource Surface}">
-                    <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="{core:TExtension idm.col.select}" Width="58">
-                            <DataGridTemplateColumn.CellTemplate>
-                                <DataTemplate>
-                                    <CheckBox IsChecked="{Binding Selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                              IsEnabled="{Binding Selectable}"
-                                              HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              Checked="RowSelection_Changed" Unchecked="RowSelection_Changed"/>
-                                </DataTemplate>
-                            </DataGridTemplateColumn.CellTemplate>
-                        </DataGridTemplateColumn>
-                        <DataGridTextColumn Header="{core:TExtension idm.col.name}" Binding="{Binding FileName}" Width="2.1*" IsReadOnly="True">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Header="{core:TExtension idm.col.size}" Binding="{Binding SizeText}" Width="95" IsReadOnly="True"/>
-                        <DataGridTextColumn Header="{core:TExtension idm.col.status}" Binding="{Binding StatusText}" Width="180" IsReadOnly="True"/>
-                        <DataGridTextColumn Header="{core:TExtension idm.col.url}" Binding="{Binding Url}" Width="3.8*" IsReadOnly="True">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                    <Setter Property="FlowDirection" Value="LeftToRight"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
-                    </DataGrid.Columns>
-                </DataGrid>
+                <Grid>
+                    <DataGrid x:Name="CandidatesGrid" AutoGenerateColumns="False" CanUserSortColumns="True"
+                              CanUserAddRows="False" CanUserDeleteRows="False"
+                              RowHeaderWidth="0" GridLinesVisibility="Horizontal" Background="{DynamicResource Surface}"
+                              AutomationProperties.Name="{core:TExtension idm.title}">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="{core:TExtension idm.col.select}" Width="58" SortMemberPath="Selected">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding Selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  IsEnabled="{Binding Selectable}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Checked="RowSelection_Changed" Unchecked="RowSelection_Changed"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="{core:TExtension idm.col.name}" Binding="{Binding FileName}" Width="2.1*" IsReadOnly="True">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="FlowDirection" Value="{Binding FileName, Converter={StaticResource TextDir}}"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="{core:TExtension idm.col.size}" Binding="{Binding SizeText}" SortMemberPath="FileSize" Width="95" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="{core:TExtension idm.col.status}" Binding="{Binding StatusText}" Width="180" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="{core:TExtension idm.col.url}" Binding="{Binding Url}" Width="3.8*" IsReadOnly="True">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="FlowDirection" Value="LeftToRight"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock x:Name="EmptyCandidatesText" Text="{core:TExtension idm.empty}"
+                               Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               TextWrapping="Wrap" Margin="24" IsHitTestVisible="False"/>
+                </Grid>
             </Border>
 
             <!-- Selection & Target Queue controls -->
@@ -94,7 +102,8 @@
                     <Button DockPanel.Dock="Left" Content="{core:TExtension idm.select_none}" Padding="14,5"
                             Click="SelectNone_Click"/>
 
-                    <ComboBox x:Name="QueueCombo" DockPanel.Dock="Right" Width="220" DisplayMemberPath="Label"/>
+                    <ComboBox x:Name="QueueCombo" DockPanel.Dock="Right" Width="220" DisplayMemberPath="Label"
+                              AutomationProperties.Name="{core:TExtension idm.target_queue}"/>
                     <TextBlock DockPanel.Dock="Right" Text="{core:TExtension idm.target_queue}" VerticalAlignment="Center"
                                Margin="0,0,10,0" Foreground="{DynamicResource Muted}"/>
                 </DockPanel>
