@@ -19,6 +19,9 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
     /// <summary>Optional hook so the main UI can suppress its clipboard URL watcher before Golan copies a folder path.</summary>
     public static Action? BeforeClipboardCopy { get; set; }
 
+    /// <summary>Extra browser arguments placed first (live tests point the browser at a throwaway user-data folder).</summary>
+    public IReadOnlyList<string>? ExtraLaunchArguments { get; init; }
+
     static readonly string[] AddressBarIds = ["view_1012", "view_1022", "urlbar-input"];
     static readonly string[] AddressBarNames =
     [
@@ -52,7 +55,7 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
         var manifestPath = Path.Combine(extDir, "manifest.json");
         var version = ReadManifestVersion(manifestPath)
             ?? typeof(BrowserIntegration).Assembly.GetName().Version?.ToString(3)
-            ?? "2.6.0";
+            ?? "2.6.1";
         var xpiPath = BrowserIntegration.FirefoxXpiPath;
         bool signed = IsSignedMozillaXpi(xpiPath);
 
@@ -127,11 +130,15 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
                 UseShellExecute = false,
                 WindowStyle = ProcessWindowStyle.Normal,
             };
+            foreach (var arg in ExtraLaunchArguments ?? [])
+                psi.ArgumentList.Add(arg);
             foreach (var arg in ExtensionAutoInstaller.BuildLaunchArguments(browser, profileDirectory, url, newTab))
                 psi.ArgumentList.Add(arg);
 
+            // Chromium opens the page in a new window, so every window that exists now is not the one to work in.
+            var before = ExtensionAutoInstaller.IsFirefox(browser) ? null : SnapshotBrowserWindows();
             using var proc = Process.Start(psi);
-            return new BrowserLaunchHandle(exe, proc?.Id, url, newTab);
+            return new BrowserLaunchHandle(exe, proc?.Id, url, newTab) { WindowsBeforeLaunch = before };
         }
         catch (Exception ex)
         {
@@ -142,12 +149,14 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
 
     public async Task<nint> WaitForWindowAsync(BrowserLaunchHandle launch, TimeSpan timeout, CancellationToken ct)
     {
-        var exeStem = Path.GetFileNameWithoutExtension(launch.ExePath);
         var sw = Stopwatch.StartNew();
         while (sw.Elapsed < timeout)
         {
             ct.ThrowIfCancellationRequested();
-            var hwnd = FindBrowserWindow(exeStem, launch.ProcessId);
+            // A browser that is already running hands the new tab to one of its windows a moment after the launch.
+            // Until then only a window that is clearly ours counts; the plain "front-most window" guess waits.
+            var hwnd = FindBrowserWindow(launch.ExePath, launch.ProcessId, launch.WindowsBeforeLaunch,
+                allowFrontMostGuess: launch.WindowsBeforeLaunch != null || sw.Elapsed >= FrontMostGuessDelay);
             if (hwnd != 0)
             {
                 BringToFront(hwnd);
@@ -221,6 +230,8 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
             {
                 var root = AutomationElement.FromHandle(window);
                 var el = LocateElement(root, query);
+                if (el == null && RequestWebAccessibility(window))
+                    await Task.Delay(350, ct).ConfigureAwait(false);
                 if (el != null)
                 {
                     bool enabled = el.Current.IsEnabled;
@@ -717,34 +728,110 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
         catch { return ""; }
     }
 
-    static nint FindBrowserWindow(string exeStem, int? preferredPid)
+    static readonly TimeSpan FrontMostGuessDelay = TimeSpan.FromSeconds(3);
+
+    /// <summary>Every Chromium-family top-level window that exists right now (taken just before a launch).</summary>
+    static HashSet<nint> SnapshotBrowserWindows()
     {
-        // EnumWindows goes front to back. A running browser opens the new tab in its most recently used window, which is
-        // the front-most one, so the first match is kept (keeping the last one picked the window at the very back).
-        nint preferred = 0, fallback = 0;
+        var set = new HashSet<nint>();
+        EnumWindows((hwnd, _) =>
+        {
+            if (GetWindowClass(hwnd) is "Chrome_WidgetWin_1" or "OperaWindowClass") set.Add(hwnd);
+            return true;
+        }, 0);
+        return set;
+    }
+
+    /// <summary>
+    /// The window Golan's page opened in. Several browsers share one process name (Chrome, Chrome Beta, bundled
+    /// Chromium copies), so a window counts only when its process runs the very executable that was launched, and
+    /// never when it already existed before the launch. Order: the launched process's own window, then a window
+    /// already showing the extensions page, then the front-most remaining window of that browser.
+    /// </summary>
+    static nint FindBrowserWindow(string exePath, int? preferredPid, IReadOnlyCollection<nint>? windowsBeforeLaunch, bool allowFrontMostGuess)
+    {
+        nint titled = 0, ownWithPage = 0, fallback = 0;
+        var exeOfPid = new Dictionary<uint, string?>();
         EnumWindows((hwnd, _) =>
         {
             if (!IsWindowVisible(hwnd)) return true;
             var cls = GetWindowClass(hwnd);
             if (cls is not ("Chrome_WidgetWin_1" or "MozillaWindowClass" or "OperaWindowClass")) return true;
             if (GetWindowTitle(hwnd).Length == 0) return true;
+            if (windowsBeforeLaunch != null && windowsBeforeLaunch.Contains(hwnd)) return true;
 
             GetWindowThreadProcessId(hwnd, out uint pid);
-            if (preferredPid.HasValue && pid == (uint)preferredPid.Value)
+            bool own = preferredPid.HasValue && pid == (uint)preferredPid.Value;
+            if (!own)
             {
-                preferred = hwnd;
-                return false;
+                if (!exeOfPid.TryGetValue(pid, out var path))
+                {
+                    path = ProcessImagePath(pid);
+                    exeOfPid[pid] = path;
+                }
+                if (!string.Equals(path, exePath, StringComparison.OrdinalIgnoreCase)) return true;
             }
-            try
+
+            // EnumWindows goes front to back, so the first match of each kind is the front-most one.
+            if (titled == 0)
             {
-                using var proc = Process.GetProcessById((int)pid);
-                if (fallback == 0 && string.Equals(proc.ProcessName, exeStem, StringComparison.OrdinalIgnoreCase))
-                    fallback = hwnd;
+                var title = GetWindowTitle(hwnd);
+                if (TabTitleTokens.Any(tok => title.Contains(tok, StringComparison.OrdinalIgnoreCase)))
+                    titled = hwnd;
             }
-            catch { /* window closed under us; skip it */ }
+            // A browser process also owns small windows (bubbles, prompts): only a window that hosts a page is a
+            // browser window Golan can work in.
+            bool hostsPage = cls != "Chrome_WidgetWin_1" || HasPageWindow(hwnd);
+            if (own && hostsPage && ownWithPage == 0) ownWithPage = hwnd;
+            if (hostsPage && fallback == 0) fallback = hwnd;
             return true;
         }, 0);
-        return preferred != 0 ? preferred : fallback;
+        // While the launched process is alive it is the browser itself (nothing was running to hand the tab to),
+        // so only its own window counts: a window of another running copy must never be driven by mistake.
+        if (ownWithPage != 0) return ownWithPage;
+        if (preferredPid.HasValue && IsProcessAlive(preferredPid.Value)) return 0;
+        if (titled != 0) return titled;
+        return allowFrontMostGuess ? fallback : 0;
+    }
+
+    static bool IsProcessAlive(int pid)
+    {
+        try
+        {
+            using var proc = Process.GetProcessById(pid);
+            return !proc.HasExited;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            // Gone (or not ours to query): the tab was handed to a browser that was already running.
+            return false;
+        }
+    }
+
+    static bool HasPageWindow(nint window)
+    {
+        bool found = false;
+        EnumChildWindows(window, (h, _) =>
+        {
+            if (GetWindowClass(h) != "Chrome_RenderWidgetHostHWND") return true;
+            found = true;
+            return false;
+        }, 0);
+        return found;
+    }
+
+    static string? ProcessImagePath(uint pid)
+    {
+        try
+        {
+            using var proc = Process.GetProcessById((int)pid);
+            return proc.MainModule?.FileName;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            // The process ended, or runs elevated: it is not a window Golan may drive.
+            return null;
+        }
     }
 
     static nint FindFileDialogWindow(nint ownerWindow, uint ownerPid)
@@ -771,6 +858,57 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
         // Without a clear owner, a dialog is used only when it is the browser's single open one: with two open, one of
         // them belongs to something else the user is doing, and a path must not be typed into it.
         return owned != 0 ? owned : sameProcessCount == 1 ? sameProcess : 0;
+    }
+
+    static readonly Dictionary<nint, long> WebAccessibilityAsked = [];
+
+    /// <summary>
+    /// Chromium keeps the page (the extensions page included) out of the accessibility tree until an accessibility
+    /// client shows up, so without this step no button on the page can ever be found. It is told the same way a
+    /// screen reader does it: answer the page window's "honeypot" object, read a name, and ask for IAccessible2.
+    /// Asked at most once a second per window; returns true when a request was just sent.
+    /// </summary>
+    static bool RequestWebAccessibility(nint window)
+    {
+        long now = Environment.TickCount64;
+        lock (WebAccessibilityAsked)
+        {
+            if (WebAccessibilityAsked.TryGetValue(window, out var last) && now - last < 1000) return false;
+            if (WebAccessibilityAsked.Count > 64) WebAccessibilityAsked.Clear();
+            WebAccessibilityAsked[window] = now;
+        }
+
+        var pages = new List<nint>();
+        EnumChildWindows(window, (h, _) =>
+        {
+            if (GetWindowClass(h) == "Chrome_RenderWidgetHostHWND") pages.Add(h);
+            return true;
+        }, 0);
+
+        bool asked = false;
+        foreach (var page in pages)
+        {
+            try
+            {
+                _ = SendMessageTimeout(page, WM_GETOBJECT, 0, ScreenReaderHoneyPotId, SMTO_ABORTIFHUNG, 500, out _);
+                var iid = IID_IAccessible;
+                if (AccessibleObjectFromWindow(page, OBJID_CLIENT, ref iid, out var obj) != 0 || obj == null) continue;
+                asked = true;
+                if (obj is Accessibility.IAccessible acc)
+                    _ = acc.get_accName(0);
+                if (obj is IOleServiceProvider sp)
+                {
+                    var service = IID_IAccessible;
+                    var ia2 = IID_IAccessible2;
+                    if (sp.QueryService(ref service, ref ia2, out var ptr) == 0 && ptr != 0) Marshal.Release(ptr);
+                }
+            }
+            catch (Exception ex) when (ex is COMException or InvalidCastException or InvalidOperationException or NotImplementedException)
+            {
+                // The page went away or refused the call: the caller's polling tries again.
+            }
+        }
+        return asked;
     }
 
     static void BringToFront(nint hwnd)
@@ -839,6 +977,23 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
     const ushort VK_W = 0x57;
 
     delegate bool EnumWindowsProc(nint hWnd, nint lParam);
+
+    const uint WM_GETOBJECT = 0x003D;
+    const uint OBJID_CLIENT = 0xFFFFFFFC;
+    const uint SMTO_ABORTIFHUNG = 0x0002;
+    const nint ScreenReaderHoneyPotId = 1;
+    static readonly Guid IID_IAccessible = new("618736E0-3C3D-11CF-810C-00AA00389B71");
+    static readonly Guid IID_IAccessible2 = new("E89F726E-C4F4-4C19-BB19-B647D7FA8478");
+
+    [ComImport, Guid("6D5140C1-7436-11CE-8034-00AA006009FA"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IOleServiceProvider
+    {
+        [PreserveSig] int QueryService(ref Guid guidService, ref Guid riid, out nint ppvObject);
+    }
+
+    [DllImport("user32.dll")] static extern bool EnumChildWindows(nint hWndParent, EnumWindowsProc lpEnumFunc, nint lParam);
+    [DllImport("user32.dll")] static extern nint SendMessageTimeout(nint hWnd, uint msg, nint wParam, nint lParam, uint flags, uint timeoutMs, out nint result);
+    [DllImport("oleacc.dll")] static extern int AccessibleObjectFromWindow(nint hwnd, uint objId, ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object? ppvObject);
 
     [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, nint lParam);
     [DllImport("user32.dll")] static extern bool IsWindowVisible(nint hWnd);

@@ -57,19 +57,79 @@ public static class BrowserIntegration
 
     static string? FindExe(string exe)
     {
+        // The usual install folders come first: App Paths holds whichever copy registered last (Chrome Beta, a
+        // bundled Chromium), while the stable browser is the one the user means by its name.
+        var candidates = StandardInstallPaths(exe).Where(File.Exists).ToList();
         foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
         {
             try
             {
                 using var key = hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\App Paths\" + exe);
-                if (key?.GetValue(null) is string p && File.Exists(p.Trim('"'))) return p.Trim('"');
+                if (key?.GetValue(null) is string p && File.Exists(p.Trim('"'))) candidates.Add(p.Trim('"'));
             }
             catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
             {
                 // Restricted registry ACLs must not crash browser detection or UI pages.
             }
         }
+        return PickVendorExe(exe, candidates, CompanyOf);
+    }
+
+    /// <summary>
+    /// Other programs (anti-detect browsers, portable bundles) register their own "chrome.exe" under App Paths.
+    /// Opening that one would put the extension in a browser the user never sees, so a known browser is accepted
+    /// only when the file really comes from its vendor.
+    /// </summary>
+    internal static string? PickVendorExe(string exe, IEnumerable<string> candidates, Func<string, string?> companyOf)
+    {
+        var vendor = VendorOf(exe);
+        foreach (var path in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (vendor == null) return path;
+            var company = companyOf(path);
+            if (company != null && company.Contains(vendor, StringComparison.OrdinalIgnoreCase)) return path;
+        }
         return null;
+    }
+
+    static string? VendorOf(string exe) => exe.ToLowerInvariant() switch
+    {
+        "chrome.exe" => "Google",
+        "msedge.exe" => "Microsoft",
+        "firefox.exe" => "Mozilla",
+        "brave.exe" => "Brave",
+        "opera.exe" => "Opera",
+        "vivaldi.exe" => "Vivaldi",
+        _ => null,
+    };
+
+    static string? CompanyOf(string path)
+    {
+        try { return System.Diagnostics.FileVersionInfo.GetVersionInfo(path).CompanyName; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // Unreadable version info: the file cannot be trusted as the vendor's browser.
+            return null;
+        }
+    }
+
+    static IEnumerable<string> StandardInstallPaths(string exe)
+    {
+        var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var pf86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string[] tails = exe.ToLowerInvariant() switch
+        {
+            "chrome.exe" => [@"Google\Chrome\Application\chrome.exe"],
+            "msedge.exe" => [@"Microsoft\Edge\Application\msedge.exe"],
+            "brave.exe" => [@"BraveSoftware\Brave-Browser\Application\brave.exe"],
+            "firefox.exe" => [@"Mozilla Firefox\firefox.exe"],
+            _ => [],
+        };
+        foreach (var tail in tails)
+            foreach (var root in new[] { pf, pf86, local })
+                if (!string.IsNullOrEmpty(root))
+                    yield return Path.Combine(root, tail);
     }
 
     /// <summary>Writes the Chromium and Firefox host manifests and points every supported browser at the appropriate one (current user only).</summary>

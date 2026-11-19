@@ -202,7 +202,7 @@ public sealed class BrowserGuideWindow : Window
     {
         _profiles.Items.Clear();
         if (IsFirefox(b)) return;
-        var userData = BrowserProfiles.UserDataDir(ExeName(b));
+        var userData = BrowserProfiles.UserDataDir(b.ExePath ?? ExeName(b));
         var profiles = userData == null ? [] : BrowserProfiles.ReadProfiles(userData);
         foreach (var p in profiles)
         {
@@ -229,7 +229,7 @@ public sealed class BrowserGuideWindow : Window
         bool connectedRecently = contact is { } c && DateTime.UtcNow - c < TimeSpan.FromMinutes(10);
 
         ProfileExtensionState state = new(false, false, false);
-        if (SelectedProfile is { } p && BrowserProfiles.UserDataDir(exe) is { } userData)
+        if (SelectedProfile is { } p && BrowserProfiles.UserDataDir(b.ExePath ?? exe) is { } userData)
         {
             var profilePath = p.Directory.Length == 0 ? userData : Path.Combine(userData, p.Directory);
             state = BrowserProfiles.ReadState(profilePath, BrowserIntegration.ExtensionId, AppPaths.ExtensionDir);

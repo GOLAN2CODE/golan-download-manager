@@ -18,6 +18,8 @@ public sealed class ExtensionAutoInstallPanel : Border
     readonly Action<string?>? _openManualGuide;
     readonly Action<IReadOnlyList<AutoInstallResult>>? _onCompleted;
     readonly bool _inlineManualGuide;
+    readonly List<(CheckBox Box, AutoInstallTarget Target)> _targetBoxes = [];
+    Task? _scanTask;
     CancellationTokenSource? _cts;
     Window? _hookedWindow;
 
@@ -25,7 +27,19 @@ public sealed class ExtensionAutoInstallPanel : Border
     public Button CancelButton { get; }
     public TextBlock ProgressText { get; }
     public StackPanel ResultsPanel { get; }
+    /// <summary>The browsers and profiles found, each with a checkbox: the extension goes only where the user ticks.</summary>
+    public StackPanel TargetsPanel { get; }
     public bool IsRunning { get; private set; }
+
+    /// <summary>
+    /// The real installer lists profiles and installs into the ticked ones. A panel given its own installer (tests)
+    /// and no scanner keeps the old behaviour: one run per browser.
+    /// </summary>
+    bool UsesTargets => _installer == null || ScanTargetsOverride != null;
+
+    /// <summary>Replaces the real profile search (tests and offscreen renders).</summary>
+    public Func<IReadOnlyList<AutoInstallTarget>>? ScanTargetsOverride { get; init; }
+    public int TargetCount => _targetBoxes.Count;
     public IReadOnlyList<AutoInstallResult> LastResults { get; private set; } = [];
 
     public ExtensionAutoInstallPanel(
@@ -61,6 +75,21 @@ public sealed class ExtensionAutoInstallPanel : Border
         };
         subtitle.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
         stack.Children.Add(subtitle);
+
+        TargetsPanel = new StackPanel
+        {
+            Margin = new Thickness(0, 10, 0, 0),
+            Visibility = Visibility.Collapsed,
+        };
+        AutomationProperties.SetAutomationId(TargetsPanel, "AutoInstallTargetsPanel");
+        // Dozens of profiles are common: the list scrolls inside the card instead of stretching the window.
+        stack.Children.Add(new ScrollViewer
+        {
+            Content = TargetsPanel,
+            MaxHeight = 190,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        });
 
         var buttonRow = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
         InstallButton = new Button
@@ -107,7 +136,122 @@ public sealed class ExtensionAutoInstallPanel : Border
 
         Child = stack;
 
-        Loaded += (_, _) => AttachWindowClose();
+        Loaded += (_, _) =>
+        {
+            AttachWindowClose();
+            _ = EnsureTargetsAsync();
+        };
+    }
+
+    /// <summary>Searches the browsers' profiles once (read-only, off the UI thread) and lists them.</summary>
+    public Task EnsureTargetsAsync()
+    {
+        if (!UsesTargets) return Task.CompletedTask;
+        return _scanTask ??= ScanTargetsAsync();
+    }
+
+    async Task ScanTargetsAsync()
+    {
+        InstallButton.IsEnabled = false;
+        TargetsPanel.Children.Clear();
+        _targetBoxes.Clear();
+        var searching = new TextBlock { Text = Loc.T("autoinstall.ui.scanning"), TextWrapping = TextWrapping.Wrap };
+        searching.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        TargetsPanel.Children.Add(searching);
+        TargetsPanel.Visibility = Visibility.Visible;
+
+        IReadOnlyList<AutoInstallTarget> targets;
+        try
+        {
+            var browsers = _targetBrowsers;
+            var scan = ScanTargetsOverride ?? (() => ExtensionAutoInstaller.ScanTargets(browsers));
+            targets = await Task.Run(scan);
+        }
+        catch (Exception ex)
+        {
+            Log.Write("auto-install profile search failed: " + ex.Message);
+            targets = [];
+        }
+
+        ShowTargets(targets);
+        if (!IsRunning) InstallButton.IsEnabled = true;
+    }
+
+    /// <summary>
+    /// Lists the found browsers and profiles (also used by the offscreen render test). A profile that has no extension
+    /// is ticked only when it is the one its browser used last; one that needs an update is ticked too. The rest is
+    /// the user's choice.
+    /// </summary>
+    public void ShowTargets(IReadOnlyList<AutoInstallTarget> targets)
+    {
+        TargetsPanel.Children.Clear();
+        _targetBoxes.Clear();
+        TargetsPanel.Visibility = Visibility.Visible;
+        if (targets.Count == 0)
+        {
+            var none = new TextBlock { Text = Loc.T("guide.noBrowsers"), TextWrapping = TextWrapping.Wrap };
+            none.SetResourceReference(TextBlock.ForegroundProperty, "Warning");
+            TargetsPanel.Children.Add(none);
+            return;
+        }
+
+        TargetsPanel.Children.Add(new TextBlock
+        {
+            Text = Loc.T("autoinstall.ui.choose"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 2),
+        });
+
+        // Dozens of profiles: two quick choices instead of ticking them one by one.
+        if (targets.Count > 3)
+        {
+            var quick = new WrapPanel { Margin = new Thickness(0, 4, 0, 2) };
+            var all = new Button { Content = Loc.T("autoinstall.ui.select_all"), Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 8, 0) };
+            AutomationProperties.SetAutomationId(all, "AutoInstallSelectAllBtn");
+            all.Click += (_, _) => { foreach (var (b, t) in _targetBoxes) if (b.IsEnabled) b.IsChecked = !t.Installed || t.NeedsUpdate; };
+            var none = new Button { Content = Loc.T("autoinstall.ui.select_none"), Padding = new Thickness(10, 2, 10, 2) };
+            AutomationProperties.SetAutomationId(none, "AutoInstallSelectNoneBtn");
+            none.Click += (_, _) => { foreach (var (b, _) in _targetBoxes) if (b.IsEnabled) b.IsChecked = false; };
+            quick.Children.Add(all);
+            quick.Children.Add(none);
+            TargetsPanel.Children.Add(quick);
+        }
+
+        foreach (var t in targets)
+        {
+            var (statusKey, brushKey) = t.NeedsUpdate ? ("autoinstall.ui.target.update", "Warning")
+                : t.Installed ? ("autoinstall.ui.target.installed", "Success")
+                : ("autoinstall.ui.target.missing", "Muted");
+            var status = Loc.T(statusKey);
+
+            var line = new WrapPanel();
+            line.Children.Add(new TextBlock { Text = t.Label, TextWrapping = TextWrapping.Wrap });
+            var statusText = new TextBlock { Text = "  ·  " + status };
+            statusText.SetResourceReference(TextBlock.ForegroundProperty, brushKey);
+            line.Children.Add(statusText);
+
+            var box = new CheckBox
+            {
+                Content = line,
+                IsChecked = t.NeedsUpdate || (!t.Installed && t.IsLastUsed),
+                Margin = new Thickness(0, 5, 0, 0),
+            };
+            AutomationProperties.SetName(box, t.Label + " · " + status);
+            TargetsPanel.Children.Add(box);
+            _targetBoxes.Add((box, t));
+        }
+    }
+
+    string TargetLabel(AutoInstallResult r)
+    {
+        foreach (var (_, t) in _targetBoxes)
+        {
+            if (string.Equals(t.Browser.ExePath, r.Browser.ExePath, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(t.ProfileDirectory ?? "", r.ProfileDirectory ?? "", StringComparison.OrdinalIgnoreCase))
+                return t.Label;
+        }
+        return r.Browser.Name;
     }
 
     void AttachWindowClose()
@@ -146,6 +290,22 @@ public sealed class ExtensionAutoInstallPanel : Border
         ProgressText.SetResourceReference(TextBlock.ForegroundProperty, "AccentText");
         ProgressText.Visibility = Visibility.Visible;
 
+        // Nothing is installed anywhere the user did not tick.
+        List<AutoInstallTarget>? chosen = null;
+        if (UsesTargets)
+        {
+            await EnsureTargetsAsync();
+            chosen = _targetBoxes.Where(x => x.Box.IsChecked == true).Select(x => x.Target).ToList();
+            if (_targetBoxes.Count > 0 && chosen.Count == 0)
+            {
+                ResetRunningButtons();
+                ProgressText.Text = Loc.T("autoinstall.ui.none_selected");
+                ProgressText.SetResourceReference(TextBlock.ForegroundProperty, "Warning");
+                return LastResults;
+            }
+            foreach (var (box, _) in _targetBoxes) box.IsEnabled = false;
+        }
+
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
@@ -171,6 +331,17 @@ public sealed class ExtensionAutoInstallPanel : Border
 
             var results = await Task.Run(async () =>
             {
+                if (chosen != null)
+                {
+                    var list = new List<AutoInstallResult>(chosen.Count);
+                    foreach (var target in chosen)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var profile = string.IsNullOrEmpty(target.ProfileDirectory) ? null : target.ProfileDirectory;
+                        list.Add(await runner.InstallAsync(target.Browser, profile, onProgress, ct).ConfigureAwait(false));
+                    }
+                    return (IReadOnlyList<AutoInstallResult>)list;
+                }
                 if (targetBrowsers != null)
                 {
                     var list = new List<AutoInstallResult>(targetBrowsers.Count);
@@ -226,6 +397,12 @@ public sealed class ExtensionAutoInstallPanel : Border
         finally
         {
             ResetRunningButtons();
+            if (UsesTargets)
+            {
+                // Search again so every profile shows its new state (the result rows already carry their names).
+                _scanTask = null;
+                _ = EnsureTargetsAsync();
+            }
         }
     }
 
@@ -303,7 +480,7 @@ public sealed class ExtensionAutoInstallPanel : Border
 
         header.Children.Add(new TextBlock
         {
-            Text = r.Browser.Name + " — ",
+            Text = TargetLabel(r) + " — ",
             FontWeight = FontWeights.SemiBold,
         });
 
@@ -398,7 +575,15 @@ public sealed class ExtensionAutoInstallWindow : Window
         };
 
         if (autoStartOnLoad)
-            Loaded += (_, _) => _ = Panel.StartInstallAsync();
+        {
+            Loaded += async (_, _) =>
+            {
+                // With a single place to install into there is nothing to choose; otherwise the user ticks first.
+                await Panel.EnsureTargetsAsync();
+                if (Panel.TargetCount <= 1 && IsVisible)
+                    _ = Panel.StartInstallAsync();
+            };
+        }
     }
 
     /// <summary>Opens the auto-install dialog without starting until the user clicks the install button.</summary>

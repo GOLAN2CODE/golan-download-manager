@@ -16,7 +16,11 @@ public sealed record BrowserLaunchHandle(
     string ExePath,
     int? ProcessId,
     string OpenedUrl,
-    bool WasNewTab);
+    bool WasNewTab)
+{
+    /// <summary>Browser windows that already existed before the launch: none of them is the window Golan opened.</summary>
+    public IReadOnlyCollection<nint>? WindowsBeforeLaunch { get; init; }
+}
 
 /// <summary>Identifies a browser UI Automation control by AutomationId and/or localized accessible names.</summary>
 public sealed record UiElementQuery(
@@ -96,6 +100,21 @@ public enum AutoInstallFailureReason
     FirefoxTemporaryFailed,
 }
 
+/// <summary>
+/// One place the extension can be installed into: a browser and one of its profiles (no profile for Firefox or a
+/// browser whose profiles cannot be read). Shown to the user to choose from before anything is installed.
+/// </summary>
+public sealed record AutoInstallTarget(
+    BrowserIntegration.BrowserInfo Browser,
+    string? ProfileDirectory,
+    string ProfileLabel,
+    bool Installed,
+    bool NeedsUpdate,
+    bool IsLastUsed)
+{
+    public string Label => ProfileLabel.Length > 0 ? $"{Browser.Name} — {ProfileLabel}" : Browser.Name;
+}
+
 /// <summary>Localized progress update emitted during automatic extension installation.</summary>
 public sealed record AutoInstallProgress(string BrowserName, string Key, string Message);
 
@@ -172,6 +191,15 @@ public sealed class ExtensionAutoInstaller
     {
         var list = BrowserIntegration.Browsers().ToList();
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        // Beta, Dev and Canary are browsers of their own (own profiles): listed apart, never mistaken for stable Chrome.
+        foreach (var (name, folder) in new[] { ("Google Chrome Beta", "Chrome Beta"), ("Google Chrome Dev", "Chrome Dev"), ("Google Chrome Canary", "Chrome SxS") })
+        {
+            var exe = new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86, Environment.SpecialFolder.LocalApplicationData }
+                .Select(root => Path.Combine(Environment.GetFolderPath(root), "Google", folder, "Application", "chrome.exe"))
+                .FirstOrDefault(File.Exists);
+            if (exe != null && !list.Any(b => string.Equals(b.ExePath, exe, StringComparison.OrdinalIgnoreCase)))
+                list.Add(new BrowserIntegration.BrowserInfo(name, @"Software\Google\Chrome", exe, "chrome://extensions/"));
+        }
         list.Add(new BrowserIntegration.BrowserInfo(
             Loc.T("autoinstall.browser.yandex"),
             @"Software\Yandex\YandexBrowser",
@@ -183,6 +211,49 @@ public sealed class ExtensionAutoInstaller
             FindExtraBrowserExe("comet.exe", Path.Combine(local, "Perplexity", "Comet", "Application", "comet.exe")),
             "chrome://extensions/"));
         return list;
+    }
+
+    /// <summary>
+    /// Read-only search of every installed browser's profiles, with the state of Golan's extension in each one.
+    /// Nothing is launched or changed: the result is what the user picks from.
+    /// </summary>
+    public static IReadOnlyList<AutoInstallTarget> ScanTargets(
+        IReadOnlyList<BrowserIntegration.BrowserInfo>? browsers = null,
+        Func<BrowserIntegration.BrowserInfo, string?>? userDataDirOf = null,
+        string? extensionDir = null,
+        string? currentVersion = null)
+    {
+        var extDir = extensionDir ?? AppPaths.ExtensionDir;
+        var version = currentVersion ?? App.Version;
+        var targets = new List<AutoInstallTarget>();
+        foreach (var browser in browsers ?? InstalledSupportedBrowsers())
+        {
+            if (string.IsNullOrWhiteSpace(browser.ExePath)) continue;
+            if (IsFirefox(browser))
+            {
+                bool inFirefox = ExtensionOfferPolicy.IsExtensionInstalledInBrowser(browser, extDir);
+                targets.Add(new AutoInstallTarget(browser, null, "", inFirefox, NeedsUpdate: false, IsLastUsed: true));
+                continue;
+            }
+
+            var userData = userDataDirOf != null ? userDataDirOf(browser) : BrowserProfiles.UserDataDir(browser.ExePath);
+            var profiles = userData != null && Directory.Exists(userData) ? BrowserProfiles.ReadProfiles(userData) : [];
+            if (userData == null || profiles.Count == 0)
+            {
+                targets.Add(new AutoInstallTarget(browser, null, "", Installed: false, NeedsUpdate: false, IsLastUsed: true));
+                continue;
+            }
+
+            foreach (var p in profiles)
+            {
+                var path = p.Directory.Length == 0 ? userData : Path.Combine(userData, p.Directory);
+                var st = BrowserProfiles.ReadDetailedState(path, BrowserIntegration.ExtensionId, extDir);
+                bool active = st.Installed && !st.Disabled;
+                bool outdated = st.Installed && (st.LoadedFromOtherFolder || !IsCurrentOrNewerVersion(st.Version, version));
+                targets.Add(new AutoInstallTarget(browser, p.Directory, p.Label, active && !outdated, outdated || (st.Installed && st.Disabled), p.IsLastUsed));
+            }
+        }
+        return targets;
     }
 
     /// <summary>Installed browsers supported by the auto-installer.</summary>
@@ -241,8 +312,10 @@ public sealed class ExtensionAutoInstaller
         var args = new List<string>();
         if (!IsFirefox(browser) && !string.IsNullOrWhiteSpace(profileDirectory))
             args.Add("--profile-directory=" + profileDirectory);
+        // Chromium gets a window of its own in the chosen profile: the page is then never mixed up with a window the
+        // user already has open (possibly of another profile), and closing it afterwards touches nothing of theirs.
         if (newTab)
-            args.Add("--new-tab");
+            args.Add(IsFirefox(browser) ? "--new-tab" : "--new-window");
         args.Add(url);
         return args;
     }
@@ -301,7 +374,10 @@ public sealed class ExtensionAutoInstaller
             var initialState = _driver.ReadExtensionState(browser, profileDirectory, BrowserIntegration.ExtensionId, prepared.ExtensionDir);
             bool hasCurrentVersion = IsCurrentOrNewerVersion(initialState.Version, prepared.Version);
 
-            if (initialState.Installed && !initialState.Disabled && hasCurrentVersion)
+            // Loaded from another folder (an old location, a deleted copy): it must be loaded again from Golan's own.
+            bool wrongFolder = initialState.Installed && initialState.LoadedFromOtherFolder;
+
+            if (initialState.Installed && !initialState.Disabled && hasCurrentVersion && !wrongFolder)
             {
                 var verText = string.IsNullOrWhiteSpace(initialState.Version) ? prepared.Version : initialState.Version!;
                 var doneMsg = Loc.T("autoinstall.result.already_installed", browser.Name, verText);
@@ -322,7 +398,7 @@ public sealed class ExtensionAutoInstaller
                     ManualSteps: []);
             }
 
-            // Step (c): Launch the browser with --new-tab <scheme>://extensions/ and wait for its window.
+            // Step (c): Launch the browser with a new window at <scheme>://extensions/ and wait for its window.
             if (string.IsNullOrWhiteSpace(browser.ExePath))
             {
                 return FallbackToManual(
@@ -433,9 +509,9 @@ public sealed class ExtensionAutoInstaller
                 }
             }
 
-            bool needsVersionReload = initialState.Installed && !hasCurrentVersion;
+            bool needsVersionReload = initialState.Installed && !hasCurrentVersion && !wrongFolder;
 
-            if (!initialState.Installed)
+            if (!initialState.Installed || wrongFolder)
             {
                 // Step (f): Click "Load unpacked", fill folder picker with extensionDir, and confirm.
                 Report(progress, browser.Name, "autoinstall.progress.loading_unpacked", Loc.T("autoinstall.progress.loading_unpacked"));
@@ -714,7 +790,8 @@ public sealed class ExtensionAutoInstaller
         do
         {
             var state = _driver.ReadExtensionState(browser, profileDirectory, BrowserIntegration.ExtensionId, prepared.ExtensionDir);
-            if (state.Installed && !state.Disabled && (!requireCurrentVersion || IsCurrentOrNewerVersion(state.Version, prepared.Version)))
+            if (state.Installed && !state.Disabled && !state.LoadedFromOtherFolder
+                && (!requireCurrentVersion || IsCurrentOrNewerVersion(state.Version, prepared.Version)))
                 return true;
 
             if (sw.Elapsed >= _timeouts.VerifyTimeout)
@@ -728,7 +805,8 @@ public sealed class ExtensionAutoInstaller
         while (sw.Elapsed < _timeouts.VerifyTimeout);
 
         var finalState = _driver.ReadExtensionState(browser, profileDirectory, BrowserIntegration.ExtensionId, prepared.ExtensionDir);
-        return finalState.Installed && !finalState.Disabled && (!requireCurrentVersion || IsCurrentOrNewerVersion(finalState.Version, prepared.Version));
+        return finalState.Installed && !finalState.Disabled && !finalState.LoadedFromOtherFolder
+            && (!requireCurrentVersion || IsCurrentOrNewerVersion(finalState.Version, prepared.Version));
     }
 
     AutoInstallResult FallbackToManual(
@@ -806,5 +884,9 @@ public sealed class ExtensionAutoInstaller
     }
 
     static void Report(Action<AutoInstallProgress>? progress, string browserName, string key, string message)
-        => progress?.Invoke(new AutoInstallProgress(browserName, key, message));
+    {
+        // The step keys in the log show where an install stopped (they hold no path or account name).
+        Log.Write($"auto-install [{browserName}] {key}");
+        progress?.Invoke(new AutoInstallProgress(browserName, key, message));
+    }
 }

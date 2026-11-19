@@ -277,7 +277,7 @@ static class Tests_AutoInstall
                     && drv.ToggledIds.Contains("devMode:True")
                     && drv.InvokedIds.Contains("loadUnpacked")
                     && drv.PickerSubmissions is [(@"C:\Temp\GolanExt", true)]
-                    && drv.LaunchArgHistory is [["--profile-directory=Profile 1", "--new-tab", "chrome://extensions/"]]
+                    && drv.LaunchArgHistory is [["--profile-directory=Profile 1", "--new-window", "chrome://extensions/"]]
                     && progressLog.Any(p => p.Key == "autoinstall.progress.enabling_dev_mode"),
                     $"status={res.Status}, toggled={string.Join(",", drv.ToggledIds)}");
             }

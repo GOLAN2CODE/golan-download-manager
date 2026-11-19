@@ -150,7 +150,7 @@ public static class ExtensionOfferPolicy
         if (ExtensionAutoInstaller.IsFirefox(browser))
             return IsInstalledInFirefox(firefoxProfilesRootOverride);
 
-        var userData = userDataDirOverride ?? (exeName.Length > 0 ? BrowserProfiles.UserDataDir(exeName) : null);
+        var userData = userDataDirOverride ?? (exeName.Length > 0 ? BrowserProfiles.UserDataDir(browser.ExePath!) : null);
         if (string.IsNullOrWhiteSpace(userData) || !Directory.Exists(userData))
             return false;
 

@@ -632,6 +632,83 @@ public static class Tests_AutoInstallUi
                 if (noThrow)
                     Check("7. BrowserIntegration.IsRegistered and InstalledSupportedBrowsers tolerate restricted registry access", true);
             }
+
+            // 9. The browser that is opened is the vendor's own, each channel reads its own profiles, and the profile
+            //    search lists every profile so the user chooses where the extension goes.
+            {
+                string realChrome = @"C:\Program Files\Google\Chrome\Application\chrome.exe";
+                string fakeChrome = @"C:\Users\x\AppData\Roaming\SomeTool\Browsers\Core\chrome.exe";
+                Func<string, string?> company = p => p == realChrome ? "Google LLC" : "SomeTool.vn";
+                bool vendorOnly = BrowserIntegration.PickVendorExe("chrome.exe", [fakeChrome, realChrome], company) == realChrome
+                    && BrowserIntegration.PickVendorExe("chrome.exe", [fakeChrome], company) == null
+                    && BrowserIntegration.PickVendorExe("chromium.exe", [fakeChrome], company) == fakeChrome;
+
+                string beta = @"C:\Program Files\Google\Chrome Beta\Application\chrome.exe";
+                bool channels = BrowserProfiles.ChannelOf(beta) == " Beta"
+                    && BrowserProfiles.ChannelOf(realChrome) == ""
+                    && BrowserProfiles.ChannelOf("chrome.exe") == ""
+                    && (BrowserProfiles.UserDataDir(beta) ?? "").EndsWith(@"Google\Chrome Beta\User Data", StringComparison.OrdinalIgnoreCase)
+                    && (BrowserProfiles.UserDataDir(realChrome) ?? "").EndsWith(@"Google\Chrome\User Data", StringComparison.OrdinalIgnoreCase)
+                    && (BrowserProfiles.UserDataDir("chrome.exe") ?? "").EndsWith(@"Google\Chrome\User Data", StringComparison.OrdinalIgnoreCase);
+
+                var chromeInfo = new BrowserIntegration.BrowserInfo("Google Chrome", @"Software\Google\Chrome", realChrome, "chrome://extensions");
+                var ffInfo = new BrowserIntegration.BrowserInfo("Mozilla Firefox", @"Software\Mozilla", @"C:\Program Files\Mozilla Firefox\firefox.exe", "about:debugging#/runtime/this-firefox");
+                var chromeArgs = ExtensionAutoInstaller.BuildLaunchArguments(chromeInfo, "Profile 1", "chrome://extensions/", newTab: true);
+                var ffArgs = ExtensionAutoInstaller.BuildLaunchArguments(ffInfo, null, "about:debugging#/runtime/this-firefox", newTab: true);
+                bool ownWindow = chromeArgs is ["--profile-directory=Profile 1", "--new-window", "chrome://extensions/"]
+                    && ffArgs is ["--new-tab", "about:debugging#/runtime/this-firefox"];
+
+                string userData = Path.Combine(root, "scan-userdata");
+                Directory.CreateDirectory(Path.Combine(userData, "Default"));
+                Directory.CreateDirectory(Path.Combine(userData, "Profile 1"));
+                File.WriteAllText(Path.Combine(userData, "Local State"),
+                    """{"profile":{"info_cache":{"Default":{"name":"Work","user_name":"someone@example.com"},"Profile 1":{"name":"Home"}},"last_used":"Profile 1"}}""");
+                var targets = ExtensionAutoInstaller.ScanTargets([chromeInfo], _ => userData, Path.Combine(root, "scan-ext"), "2.6.0");
+                var work = targets.FirstOrDefault(t => t.ProfileDirectory == "Default");
+                var home = targets.FirstOrDefault(t => t.ProfileDirectory == "Profile 1");
+                bool scan = targets.Count == 2
+                    && work is { Installed: false, NeedsUpdate: false, IsLastUsed: false } && work.Label == "Google Chrome — Work (someone@example.com)"
+                    && home is { Installed: false, NeedsUpdate: false, IsLastUsed: true } && home.Label == "Google Chrome — Home";
+
+                // An extension loaded from another folder (old location, deleted copy) must be offered for reinstalling.
+                string scanExt = Path.Combine(root, "scan-ext");
+                Directory.CreateDirectory(scanExt);
+                File.WriteAllText(Path.Combine(scanExt, "manifest.json"), """{"manifest_version":3,"name":"Golan","version":"2.6.0"}""");
+                var otherPrefs = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["extensions"] = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["settings"] = new System.Text.Json.Nodes.JsonObject
+                        {
+                            [BrowserIntegration.ExtensionId] = new System.Text.Json.Nodes.JsonObject { ["path"] = Path.Combine(root, "old-place", "extension"), ["state"] = 1 },
+                        },
+                    },
+                };
+                File.WriteAllText(Path.Combine(userData, "Default", "Secure Preferences"), otherPrefs.ToJsonString());
+                var herePrefs = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["extensions"] = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["settings"] = new System.Text.Json.Nodes.JsonObject
+                        {
+                            [BrowserIntegration.ExtensionId] = new System.Text.Json.Nodes.JsonObject { ["path"] = scanExt, ["state"] = 1 },
+                        },
+                    },
+                };
+                File.WriteAllText(Path.Combine(userData, "Profile 1", "Secure Preferences"), herePrefs.ToJsonString());
+                var rescanned = ExtensionAutoInstaller.ScanTargets([chromeInfo], _ => userData, scanExt, "2.6.0");
+                bool otherFolder = rescanned.FirstOrDefault(t => t.ProfileDirectory == "Default") is { Installed: false, NeedsUpdate: true }
+                    && rescanned.FirstOrDefault(t => t.ProfileDirectory == "Profile 1") is { Installed: true, NeedsUpdate: false }
+                    && BrowserProfiles.ReadDetailedState(Path.Combine(userData, "Default"), BrowserIntegration.ExtensionId, scanExt).LoadedFromOtherFolder
+                    && !BrowserProfiles.ReadDetailedState(Path.Combine(userData, "Profile 1"), BrowserIntegration.ExtensionId, scanExt).LoadedFromOtherFolder;
+
+                var noProfiles = ExtensionAutoInstaller.ScanTargets([chromeInfo], _ => Path.Combine(root, "missing-userdata"), Path.Combine(root, "scan-ext"), "2.6.0");
+                bool fallbackRow = noProfiles is [{ ProfileDirectory: null, Installed: false }];
+
+                Check("9. only the vendor's own browser is opened, each channel reads its own profiles, Chromium gets its own window, and the profile search lists every profile",
+                    vendorOnly && channels && ownWindow && scan && otherFolder && fallbackRow,
+                    $"vendorOnly={vendorOnly}, channels={channels}, ownWindow={ownWindow}, scan={scan} (n={targets.Count}), otherFolder={otherFolder}, fallbackRow={fallbackRow}");
+            }
         }
         finally
         {

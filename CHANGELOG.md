@@ -1,5 +1,12 @@
 # سجل التغييرات · Changelog
 
+## 2.6.1 — 2026-11-19
+- التثبيت التلقائي لإضافة المتصفح صار يعمل فعلًا: يطلب من المتصفح كشف صفحة الإضافات، ويفتحها في نافذة خاصة، ولا يلمس أي نافذة أخرى · The automatic extension installer now really completes: it asks the browser to expose the extensions page, opens it in a window of its own, and never touches another window.
+- يبحث أولًا عن المتصفحات وملفاتها الشخصية ويعرضها بحالتها، ثم يثبّت الإضافة فقط في الملفات التي تختارها · It first lists every browser profile with its state, then installs only into the profiles you tick.
+- يتجاهل نسخ «chrome.exe» التابعة لبرامج أخرى، ويعامل Chrome Beta وDev وCanary كمتصفحات مستقلة بملفاتها · Copies of chrome.exe that belong to other programs are ignored; Chrome Beta, Dev and Canary are separate browsers with their own profiles.
+- إضافة محمّلة من مجلد قديم أو محذوف تُعرض «تحتاج إلى إعادة تثبيت» ويُعاد تحميلها من مجلد جولان · An extension loaded from an old or deleted folder is offered for reinstalling and is loaded again from Golan’s own folder.
+- خطوات التثبيت التلقائي تُكتب في السجل لمعرفة أين توقف · Auto-install steps are written to the log to show where a run stopped.
+
 ## 2.6.0 — 2026-11-19
 - تثبيت تلقائي لإضافة المتصفح بضغطة واحدة (من نافذة التشغيل الأول، أو «المساعدة»، أو «الخيارات»، أو «دليل المتصفح») لمتصفحات كروميوم وفايرفوكس · One-click automatic browser extension installer (first-run offer, Help menu, Options, and Browser Guide) for Chromium browsers and Firefox.
 - تنزيل مباشر لبث HLS (بما يشمل فك تشفير AES-128 ومقاطع fMP4) وMPEG-DASH، مع كشف محتوى DRM وتنبيه واضح وزر تحديث أداة الفيديو · Direct HLS (including AES-128 decryption and fMP4) and MPEG-DASH downloading, DRM detection, and an in-window video tool update button.

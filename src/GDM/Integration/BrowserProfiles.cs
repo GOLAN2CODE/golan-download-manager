@@ -19,7 +19,14 @@ public sealed record BrowserProfile(string Directory, string DisplayName, string
 public sealed record ProfileExtensionState(bool DeveloperMode, bool Installed, bool Disabled);
 
 /// <summary>Extended read-only profile state including the loaded extension version from Preferences / Secure Preferences.</summary>
-public sealed record DetailedExtensionState(bool DeveloperMode, bool Installed, bool Disabled, string? Version);
+public sealed record DetailedExtensionState(bool DeveloperMode, bool Installed, bool Disabled, string? Version)
+{
+    /// <summary>
+    /// The extension is loaded unpacked from a folder other than Golan's own (an old install location, a copy that
+    /// was moved or deleted). It stops working when that folder goes away, so it has to be loaded again from here.
+    /// </summary>
+    public bool LoadedFromOtherFolder { get; init; }
+}
 
 /// <summary>
 /// Reads Chromium-family profile data (Chrome, Edge, Brave, Chromium, Vivaldi, Opera, Yandex, Comet) so the guide and auto-installer
@@ -30,15 +37,19 @@ public static class BrowserProfiles
     const long MaxJsonBytes = 64L * 1024 * 1024;
 
     /// <summary>The "User Data" folder for a browser executable name, or null for non-Chromium browsers.</summary>
-    public static string? UserDataDir(string exeName)
+    public static string? UserDataDir(string exeNameOrPath)
     {
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var exeName = Path.GetFileName(exeNameOrPath);
+        // Beta, Dev and Canary are separate browsers with their own profiles: a chrome.exe under "Chrome Beta"
+        // keeps its data in "Google\Chrome Beta\User Data". Reading the stable folder for it shows the wrong profiles.
+        var channel = ChannelOf(exeNameOrPath);
         return exeName.ToLowerInvariant() switch
         {
-            "chrome.exe" => Path.Combine(local, "Google", "Chrome", "User Data"),
-            "msedge.exe" => Path.Combine(local, "Microsoft", "Edge", "User Data"),
-            "brave.exe" => Path.Combine(local, "BraveSoftware", "Brave-Browser", "User Data"),
+            "chrome.exe" => Path.Combine(local, "Google", "Chrome" + channel, "User Data"),
+            "msedge.exe" => Path.Combine(local, "Microsoft", "Edge" + channel, "User Data"),
+            "brave.exe" => Path.Combine(local, "BraveSoftware", "Brave-Browser" + channel.Replace(' ', '-'), "User Data"),
             "chromium.exe" => Path.Combine(local, "Chromium", "User Data"),
             "vivaldi.exe" => Path.Combine(local, "Vivaldi", "User Data"),
             "opera.exe" => Path.Combine(roaming, "Opera Software", "Opera Stable"),
@@ -46,6 +57,16 @@ public static class BrowserProfiles
             "comet.exe" => Path.Combine(local, "Perplexity", "Comet", "User Data"),
             _ => null,
         };
+    }
+
+    /// <summary>" Beta", " Dev", " SxS" (Canary) or "" (stable, or just an exe name), taken from the install folder's name.</summary>
+    internal static string ChannelOf(string exePath)
+    {
+        var folder = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(exePath) ?? "") ?? "");
+        foreach (var suffix in new[] { " Beta", " Dev", " SxS", " Nightly", "-Beta", "-Dev", "-Nightly" })
+            if (folder.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                return " " + suffix[1..];
+        return "";
     }
 
     /// <summary>
@@ -94,7 +115,7 @@ public static class BrowserProfiles
         var secure = ReadJson(Path.Combine(profilePath, "Secure Preferences")) as JsonObject;
         bool devMode = Bool(prefs?["extensions"]?["ui"]?["developer_mode"]) || Bool(secure?["extensions"]?["ui"]?["developer_mode"]);
 
-        bool installed = false, disabled = false;
+        bool installed = false, disabled = false, otherFolder = false;
         string? version = null;
         var wanted = NormalizeDir(extensionDir);
         foreach (var settings in new[] { prefs?["extensions"]?["settings"], secure?["extensions"]?["settings"] })
@@ -108,6 +129,9 @@ public static class BrowserProfiles
                             || (wanted.Length > 0 && path.Length > 0 && Path.IsPathRooted(path) && NormalizeDir(path) == wanted);
                 if (!ours) continue;
                 installed = true;
+                // Only an unpacked extension has an absolute path here (a store install keeps a relative one).
+                if (wanted.Length > 0 && path.Length > 0 && Path.IsPathRooted(path) && NormalizeDir(path) != wanted)
+                    otherFolder = true;
                 // state 0 / non-empty disable_reasons = turned off in chrome://extensions
                 if ((ext["state"] is JsonValue st && st.TryGetValue<int>(out var s) && s == 0)
                     || (ext["disable_reasons"] is JsonArray reasons && reasons.Count > 0)
@@ -122,7 +146,7 @@ public static class BrowserProfiles
         // again on every start. So when the profile gives no version, the folder's own manifest is the version loaded.
         if (installed && version == null)
             version = ReadManifestVersion(extensionDir);
-        return new DetailedExtensionState(devMode, installed, disabled, version);
+        return new DetailedExtensionState(devMode, installed, disabled, version) { LoadedFromOtherFolder = otherFolder };
     }
 
     static string? ReadManifestVersion(string extensionDir)
@@ -140,7 +164,7 @@ public static class BrowserProfiles
     public static string? ResolveProfilePath(BrowserIntegration.BrowserInfo browser, string? profileDirectory)
     {
         var exeName = string.IsNullOrWhiteSpace(browser.ExePath) ? "" : Path.GetFileName(browser.ExePath);
-        if (exeName.Length == 0 || UserDataDir(exeName) is not { } userData) return null;
+        if (exeName.Length == 0 || UserDataDir(browser.ExePath!) is not { } userData) return null;
         if (profileDirectory != null)
             return profileDirectory.Length == 0 ? userData : Path.Combine(userData, profileDirectory);
         var profiles = ReadProfiles(userData);

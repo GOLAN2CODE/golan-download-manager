@@ -13,7 +13,7 @@ namespace Golan.Gdm;
 public partial class App : Application
 {
     public static App Instance => (App)Current;
-    public const string Version = "2.6.0";
+    public const string Version = "2.6.1";
 
     public bool StartHidden { get; init; }
     public string? StartUrl { get; init; }
