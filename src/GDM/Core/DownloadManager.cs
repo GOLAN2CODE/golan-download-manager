@@ -86,14 +86,24 @@ public sealed partial class DownloadManager
     {
         Limiter.Enabled = Settings.SpeedLimitEnabled;
         Limiter.BytesPerSecond = Math.Max(1, Settings.SpeedLimitKB) * 1024L;
+        _ = Torrent.TorrentService.ApplySettingsToRunningAsync(Settings);
     }
 
-    /// <summary>Re-applies proxy / temp folder / limiter after the options changed.</summary>
+    /// <summary>Re-applies proxy / temp folder / limiter / torrent settings after the options changed.</summary>
     public void ApplySettings()
     {
         HttpDownloader.Configure(Settings);
         Categories.Use(Settings.CategoryDefs);
+        lock (_stateLock)
+        {
+            foreach (var item in Items.Where(i => i.Kind == DownloadKind.Torrent))
+            {
+                item.TorrentStopRatio = Settings.StopSeedingAtRatio;
+                item.TorrentStopMinutes = Settings.StopSeedingAfterMinutes;
+            }
+        }
         ApplyLimiter();
+        Save();
     }
 
     // ---------- list operations ----------
@@ -1145,6 +1155,176 @@ public sealed partial class DownloadManager
                 if (!used.Contains(f)) MediaDownloader.TryDelete(f);
         }
         catch (IOException ex) { Log.Write("orphan cookie purge failed: " + ex.Message); }
+    }
+
+    static readonly HashSet<string> InvalidDosDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$",
+        "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "COM\u00B9", "COM\u00B2", "COM\u00B3",
+        "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "LPT\u00B9", "LPT\u00B2", "LPT\u00B3",
+    };
+
+    public static bool ValidateRenameFileName(string? rawName, out string validName, out string errorMessage)
+    {
+        validName = "";
+        errorMessage = "";
+        if (string.IsNullOrWhiteSpace(rawName))
+        {
+            errorMessage = Loc.T("win.props.err_empty_name");
+            return false;
+        }
+
+        var trimmed = rawName.Trim();
+        if (trimmed is "." or ".."
+            || trimmed.EndsWith('.')
+            || trimmed.Length > 220
+            || trimmed.Contains('/')
+            || trimmed.Contains('\\')
+            || trimmed.Contains(':')
+            || trimmed.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+            || trimmed.Any(char.IsControl))
+        {
+            errorMessage = Loc.T("main.rename.err_invalid");
+            return false;
+        }
+
+        var stem = Path.GetFileNameWithoutExtension(trimmed).TrimEnd(' ', '.');
+        var firstDotToken = stem.Split('.')[0].TrimEnd(' ');
+        if (stem.Length == 0 && trimmed.StartsWith('.') && trimmed.Trim('.').Length == 0)
+        {
+            errorMessage = Loc.T("main.rename.err_invalid");
+            return false;
+        }
+        if (InvalidDosDeviceNames.Contains(stem)
+            || InvalidDosDeviceNames.Contains(firstDotToken)
+            || InvalidDosDeviceNames.Contains(trimmed.TrimEnd('.')))
+        {
+            errorMessage = Loc.T("main.rename.err_invalid");
+            return false;
+        }
+
+        validName = trimmed;
+        return true;
+    }
+
+    public bool TryRenameItem(DownloadItem item, string? rawNewName, out string errorMessage, string? targetDirOverride = null)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (IsRunning(item))
+        {
+            errorMessage = Loc.T("main.rename.err_running");
+            return false;
+        }
+
+        if (!ValidateRenameFileName(rawNewName, out var newName, out errorMessage))
+            return false;
+
+        var oldDir = item.SaveDir;
+        var newDir = string.IsNullOrWhiteSpace(targetDirOverride) ? oldDir : targetDirOverride.Trim();
+        var oldFull = item.FullPath;
+        var newFull = Path.Combine(newDir, newName);
+
+        bool exactSame = string.Equals(oldFull, newFull, StringComparison.Ordinal);
+        if (exactSame)
+        {
+            item.NameLocked = true;
+            Save();
+            return true;
+        }
+
+        bool caseOnlySamePath = string.Equals(oldFull, newFull, StringComparison.OrdinalIgnoreCase);
+        if (!caseOnlySamePath)
+        {
+            bool claimedByOtherItem;
+            lock (_stateLock)
+            {
+                claimedByOtherItem = Items.Any(other =>
+                    other.Id != item.Id &&
+                    string.Equals(other.FullPath, newFull, StringComparison.OrdinalIgnoreCase));
+            }
+            if (claimedByOtherItem || PathRegistry.IsClaimedByOther(item.Id, newFull))
+            {
+                errorMessage = Loc.T("main.rename.err_collision", newName);
+                return false;
+            }
+            if (File.Exists(newFull) || Directory.Exists(newFull) || File.Exists(newFull + ".gdm"))
+            {
+                errorMessage = Loc.T("main.rename.err_collision", newName);
+                return false;
+            }
+        }
+
+        try
+        {
+            Directory.CreateDirectory(newDir);
+
+            var oldTemp = item.TempPath;
+            var newTemp = string.IsNullOrWhiteSpace(DownloadItem.TempRoot)
+                ? newFull + ".gdm"
+                : Path.Combine(DownloadItem.TempRoot, $"{item.Id:N}.gdm");
+
+            if (File.Exists(oldFull))
+            {
+                File.Move(oldFull, newFull, overwrite: false);
+            }
+            else if (Directory.Exists(oldFull))
+            {
+                if (caseOnlySamePath)
+                {
+                    var hop = Path.Combine(newDir, $".gdm_rename_{Guid.NewGuid():N}");
+                    Directory.Move(oldFull, hop);
+                    Directory.Move(hop, newFull);
+                }
+                else
+                {
+                    Directory.Move(oldFull, newFull);
+                }
+            }
+
+            if (item.Status != DownloadStatus.Completed && !string.Equals(oldTemp, newTemp, StringComparison.OrdinalIgnoreCase))
+            {
+                var tempFolder = Path.GetDirectoryName(newTemp);
+                if (!string.IsNullOrEmpty(tempFolder))
+                    Directory.CreateDirectory(tempFolder);
+                if (File.Exists(oldTemp))
+                {
+                    File.Move(oldTemp, newTemp, overwrite: false);
+                    item.ActiveTempPath = newTemp;
+                }
+                else
+                {
+                    item.ActiveTempPath = "";
+                }
+                StreamDownloader.MoveSidecars(oldTemp, newTemp);
+            }
+
+            item.SaveDir = newDir;
+            item.FileName = newName;
+            item.NameLocked = true;
+            PathRegistry.Release(item.Id);
+            if (item.Status != DownloadStatus.Completed)
+                PathRegistry.Claim(item.Id, item.FullPath);
+
+            Save();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Write("rename/move failed: " + ex.Message);
+            errorMessage = FriendlyError.Format(ex);
+            return false;
+        }
+    }
+
+    public void ChangeCategory(DownloadItem item, string categoryKey, bool save = true)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        var cat = Categories.Get(categoryKey);
+        item.Category = cat.Key;
+        if (save)
+            Save();
     }
 
     public void Save()

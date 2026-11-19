@@ -171,12 +171,74 @@ public partial class BatchWindow : Window
         return urls;
     }
 
-    void ParseLinks_Click(object sender, RoutedEventArgs e)
+    public void ShowPageCapWarning()
+    {
+        if (CapWarningBanner != null)
+            CapWarningBanner.Visibility = Visibility.Visible;
+    }
+
+    static bool TryGetSingleWebPageUri(string text, out Uri? pageUri)
+    {
+        pageUri = null;
+        var trimmed = text.Trim();
+        if (trimmed.Contains('\n') || trimmed.Contains('\r') || trimmed.Any(char.IsWhiteSpace))
+            return false;
+        if (RangeRegex.IsMatch(trimmed))
+            return false;
+        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var u)
+            || (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps))
+            return false;
+        var ext = Path.GetExtension(u.AbsolutePath).TrimStart('.').ToLowerInvariant();
+        if (ext.Length > 0 && !WebExtensions.Contains(ext) && ext is not ("xhtml" or "shtml"))
+            return false;
+        pageUri = u;
+        return true;
+    }
+
+    async void ParseLinks_Click(object sender, RoutedEventArgs e)
+    {
+        await ParseLinksCoreAsync();
+    }
+
+    async Task ParseLinksCoreAsync()
     {
         var text = PasteBox.Text;
         if (string.IsNullOrWhiteSpace(text)) return;
 
-        var urls = ParseBatchInput(text);
+        bool pageCapHit = false;
+        List<(string Url, string Text)> urls;
+        if (TryGetSingleWebPageUri(text, out var pageUri) && pageUri != null)
+        {
+            ParseLinksBtn.IsEnabled = false;
+            try
+            {
+                var res = await SiteGrabber.FetchPageLinksAsync(pageUri, SiteGrabber.MaxPageBytes);
+                pageCapHit = res.CapHit;
+                if (res.Links.Count > 0)
+                {
+                    _referrer = pageUri.AbsoluteUri;
+                    urls = res.Links.Take(MaxBatchExpandedLinks).ToList();
+                }
+                else
+                {
+                    urls = ParseBatchInput(text);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Write("batch page fetch failed: " + ex.Message);
+                urls = ParseBatchInput(text);
+            }
+            finally
+            {
+                ParseLinksBtn.IsEnabled = true;
+            }
+        }
+        else
+        {
+            urls = ParseBatchInput(text);
+        }
+
         if (urls.Count == 0)
         {
             App.Instance?.Notify(Loc.T("win.batch.no_links_title"), Loc.T("win.batch.no_links_msg"), error: true);
@@ -191,7 +253,12 @@ public partial class BatchWindow : Window
         PasteHeader.Visibility = Visibility.Collapsed;
         FilterBar.Visibility = Visibility.Visible;
         SelectButtons.Visibility = Visibility.Visible;
-        ApplyDefaultSelection(selectAllByDefault: true);
+        if (pageCapHit)
+        {
+            ShowPageCapWarning();
+            App.Instance?.Notify(Loc.T("win.batch.page_cap_title"), Loc.T("win.batch.page_cap_msg"));
+        }
+        ApplyDefaultSelection(selectAllByDefault: pageUri == null);
         BuildFilterChips();
         UpdateCounter();
         if (urls.Count >= MaxBatchExpandedLinks)
@@ -424,15 +491,15 @@ public partial class BatchWindow : Window
 
     // ---------- Download ----------
 
-    void DownloadSelected_Click(object sender, RoutedEventArgs e) => ProcessSelected(startQueue: true);
+    async void DownloadSelected_Click(object sender, RoutedEventArgs e) => await ProcessSelectedAsync(startQueue: true);
 
-    void AddToQueue_Click(object sender, RoutedEventArgs e) => ProcessSelected(startQueue: false);
+    async void AddToQueue_Click(object sender, RoutedEventArgs e) => await ProcessSelectedAsync(startQueue: false);
 
-    void ProcessSelected(bool startQueue)
+    async Task ProcessSelectedAsync(bool startQueue)
     {
         if (_pasteMode && _rows.Count == 0 && !string.IsNullOrWhiteSpace(PasteBox.Text))
         {
-            ParseLinks_Click(this, new RoutedEventArgs());
+            await ParseLinksCoreAsync();
             if (_rows.Count == 0)
                 return;
         }

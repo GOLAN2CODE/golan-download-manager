@@ -23,6 +23,9 @@ public sealed partial class AppSettings
     /// <summary>Maximum total peer connections across active torrents.</summary>
     public int TorrentMaxConnections { get; set; } = 200;
 
+    /// <summary>Maximum upload speed across torrents in KB/s (`0` = unlimited).</summary>
+    public int TorrentMaxUploadSpeedKB { get; set; } = 0;
+
     /// <summary>Target share ratio (`Uploaded / Downloaded`) at which seeding stops (`0` = don't seed).</summary>
     public double StopSeedingAtRatio { get; set; } = 1.0;
 

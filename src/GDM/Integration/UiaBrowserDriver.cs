@@ -55,7 +55,7 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
         var manifestPath = Path.Combine(extDir, "manifest.json");
         var version = ReadManifestVersion(manifestPath)
             ?? typeof(BrowserIntegration).Assembly.GetName().Version?.ToString(3)
-            ?? "2.6.2";
+            ?? "2.7.0";
         var xpiPath = BrowserIntegration.FirefoxXpiPath;
         bool signed = IsSignedMozillaXpi(xpiPath);
 

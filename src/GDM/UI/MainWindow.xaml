@@ -38,6 +38,8 @@
                 <MenuItem x:Name="FileRemove" Header="{core:T main.menu.file.remove}" InputGestureText="Del" Click="Delete_Click"/>
                 <MenuItem x:Name="FileStart" Header="{core:T main.menu.file.startNow}" Click="Resume_Click"/>
                 <MenuItem x:Name="FileRedownload" Header="{core:T main.menu.file.redownload}" Click="Redownload_Click"/>
+                <MenuItem x:Name="FileRename" Header="{core:T main.ctx.rename}" InputGestureText="F2" Click="Rename_Click"/>
+                <MenuItem x:Name="FileCategory" Header="{core:T main.ctx.changeCategory}"/>
                 <Separator/>
                 <MenuItem x:Name="FileHash" Header="{vb:T main.menu.hash}" Click="HashItem_Click"/>
                 <MenuItem x:Name="FileVerify" Header="{vb:T main.menu.verifyNow}" Click="VerifyItem_Click"/>
@@ -122,30 +124,30 @@
                          TextChanged="SearchBox_TextChanged" KeyDown="SearchBox_KeyDown" AutomationProperties.Name="{core:T main.search.aria}"/>
 
                 <WrapPanel x:Name="Toolbar" Margin="8,0" VerticalAlignment="Center">
-                    <Button x:Name="AddUrlBtn" Style="{StaticResource ToolButton}" Tag="&#xE710;" Content="{core:T main.toolbar.addUrl}" Click="AddUrl_Click" ToolTip="{core:T main.toolbar.addUrlTip}"/>
-                    <Button x:Name="VideoBtn" Style="{StaticResource ToolButton}" Tag="&#xE714;" Content="{core:T main.toolbar.video}" Click="Video_Click" ToolTip="{core:T main.toolbar.videoTip}"/>
-                    <Button x:Name="BatchBtn" Style="{StaticResource ToolButton}" Tag="&#xE8C8;" Content="{core:T main.toolbar.batch}" Click="Batch_Click" ToolTip="{core:T main.toolbar.batchTip}"/>
-                    <Button x:Name="GrabberBtn" Style="{StaticResource ToolButton}" Tag="&#xE721;" Content="{core:T main.toolbar.grabber}" Click="Grabber_Click" ToolTip="{core:T main.toolbar.grabberTip}"/>
+                    <Button x:Name="AddUrlBtn" Style="{StaticResource ToolButton}" Tag="&#xE710;" Content="{core:T main.toolbar.addUrl}" Click="AddUrl_Click" ToolTip="{core:T main.toolbar.addUrlTip}" AutomationProperties.Name="{core:T main.toolbar.addUrl}"/>
+                    <Button x:Name="VideoBtn" Style="{StaticResource ToolButton}" Tag="&#xE714;" Content="{core:T main.toolbar.video}" Click="Video_Click" ToolTip="{core:T main.toolbar.videoTip}" AutomationProperties.Name="{core:T main.toolbar.video}"/>
+                    <Button x:Name="BatchBtn" Style="{StaticResource ToolButton}" Tag="&#xE8C8;" Content="{core:T main.toolbar.batch}" Click="Batch_Click" ToolTip="{core:T main.toolbar.batchTip}" AutomationProperties.Name="{core:T main.toolbar.batch}"/>
+                    <Button x:Name="GrabberBtn" Style="{StaticResource ToolButton}" Tag="&#xE721;" Content="{core:T main.toolbar.grabber}" Click="Grabber_Click" ToolTip="{core:T main.toolbar.grabberTip}" AutomationProperties.Name="{core:T main.toolbar.grabber}"/>
                     <Rectangle Width="1" Height="34" Fill="{DynamicResource Line}" Margin="4,0"/>
-                    <Button x:Name="ResumeBtn" Style="{StaticResource ToolButton}" Tag="&#xE768;" Content="{core:T main.toolbar.resume}" Click="Resume_Click" ToolTip="{core:T main.toolbar.resumeTip}"/>
-                    <Button x:Name="PauseBtn" Style="{StaticResource ToolButton}" Tag="&#xE769;" Content="{core:T main.toolbar.pause}" Click="Pause_Click" ToolTip="{core:T main.toolbar.pauseTip}"/>
-                    <Button x:Name="PauseAllBtn" Style="{StaticResource ToolButton}" Tag="&#xE71A;" Content="{core:T main.toolbar.pauseAll}" Click="PauseAll_Click"/>
-                    <Button x:Name="DeleteBtn" Style="{StaticResource ToolButton}" Tag="&#xE74D;" Content="{core:T main.toolbar.delete}" Click="Delete_Click" ToolTip="{core:T main.toolbar.deleteTip}"/>
-                    <Button x:Name="DeleteCompletedBtn" Style="{StaticResource ToolButton}" Tag="&#xE894;" Content="{core:T main.toolbar.deleteCompleted}" Click="DeleteCompleted_Click"/>
+                    <Button x:Name="ResumeBtn" Style="{StaticResource ToolButton}" Tag="&#xE768;" Content="{core:T main.toolbar.resume}" Click="Resume_Click" ToolTip="{core:T main.toolbar.resumeTip}" AutomationProperties.Name="{core:T main.toolbar.resume}"/>
+                    <Button x:Name="PauseBtn" Style="{StaticResource ToolButton}" Tag="&#xE769;" Content="{core:T main.toolbar.pause}" Click="Pause_Click" ToolTip="{core:T main.toolbar.pauseTip}" AutomationProperties.Name="{core:T main.toolbar.pause}"/>
+                    <Button x:Name="PauseAllBtn" Style="{StaticResource ToolButton}" Tag="&#xE71A;" Content="{core:T main.toolbar.pauseAll}" Click="PauseAll_Click" AutomationProperties.Name="{core:T main.toolbar.pauseAll}"/>
+                    <Button x:Name="DeleteBtn" Style="{StaticResource ToolButton}" Tag="&#xE74D;" Content="{core:T main.toolbar.delete}" Click="Delete_Click" ToolTip="{core:T main.toolbar.deleteTip}" AutomationProperties.Name="{core:T main.toolbar.delete}"/>
+                    <Button x:Name="DeleteCompletedBtn" Style="{StaticResource ToolButton}" Tag="&#xE894;" Content="{core:T main.toolbar.deleteCompleted}" Click="DeleteCompleted_Click" AutomationProperties.Name="{core:T main.toolbar.deleteCompleted}"/>
                     <Rectangle Width="1" Height="34" Fill="{DynamicResource Line}" Margin="4,0"/>
-                    <Button x:Name="SchedulerBtn" Style="{StaticResource ToolButton}" Tag="&#xE787;" Content="{core:T main.toolbar.scheduler}" Click="Scheduler_Click" ToolTip="{core:T main.toolbar.schedulerTip}"/>
-                    <ToggleButton x:Name="QueueToggle" Style="{StaticResource ToolToggle}" Tag="&#xE8FD;" Content="{core:T main.toolbar.queue}" Click="Queue_Click" ToolTip="{core:T main.toolbar.queueTip}"/>
-                    <ToggleButton x:Name="LimiterToggle" Style="{StaticResource ToolToggle}" Tag="&#xEC4A;" Content="{core:T main.toolbar.speedLimiter}" Click="Limiter_Click"/>
-                    <Button x:Name="OptionsBtn" Style="{StaticResource ToolButton}" Tag="&#xE713;" Content="{core:T main.toolbar.options}" Click="Options_Click"/>
+                    <Button x:Name="SchedulerBtn" Style="{StaticResource ToolButton}" Tag="&#xE787;" Content="{core:T main.toolbar.scheduler}" Click="Scheduler_Click" ToolTip="{core:T main.toolbar.schedulerTip}" AutomationProperties.Name="{core:T main.toolbar.scheduler}"/>
+                    <ToggleButton x:Name="QueueToggle" Style="{StaticResource ToolToggle}" Tag="&#xE8FD;" Content="{core:T main.toolbar.queue}" Click="Queue_Click" ToolTip="{core:T main.toolbar.queueTip}" AutomationProperties.Name="{core:T main.toolbar.queue}"/>
+                    <ToggleButton x:Name="LimiterToggle" Style="{StaticResource ToolToggle}" Tag="&#xEC4A;" Content="{core:T main.toolbar.speedLimiter}" Click="Limiter_Click" AutomationProperties.Name="{core:T main.toolbar.speedLimiter}"/>
+                    <Button x:Name="OptionsBtn" Style="{StaticResource ToolButton}" Tag="&#xE713;" Content="{core:T main.toolbar.options}" Click="Options_Click" AutomationProperties.Name="{core:T main.toolbar.options}"/>
                 </WrapPanel>
             </DockPanel>
         </Border>
 
-        <!-- Shutdown banner -->
+        <!-- Shutdown / Sleep / Hibernate banner -->
         <Border x:Name="ShutdownBanner" DockPanel.Dock="Top" Background="{DynamicResource WarningSoft}" Padding="14,8" Visibility="Collapsed">
             <DockPanel>
                 <Button DockPanel.Dock="Left" Content="{core:T main.shutdown.cancel}" Click="CancelShutdown_Click"/>
-                <TextBlock Text="{core:T main.shutdown.banner}" VerticalAlignment="Center" Margin="12,0" Foreground="{DynamicResource WarningInk}"/>
+                <TextBlock x:Name="ShutdownBannerText" Text="{core:T main.shutdown.banner}" VerticalAlignment="Center" Margin="12,0" Foreground="{DynamicResource WarningInk}"/>
             </DockPanel>
         </Border>
 
@@ -187,7 +189,8 @@
                         </StackPanel>
                     </Border>
                     <ListBox x:Name="CategoryList" Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource NavItem}"
-                             SelectionChanged="CategoryList_SelectionChanged" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                             SelectionChanged="CategoryList_SelectionChanged" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             AutomationProperties.Name="{core:T main.sidebar.categories}">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel>
@@ -208,7 +211,8 @@
             <Grid Grid.Column="1">
                 <DataGrid x:Name="Grid" MouseDoubleClick="Grid_MouseDoubleClick" SelectionChanged="Grid_SelectionChanged"
                           KeyDown="Grid_KeyDown" AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
-                          ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                          AutomationProperties.Name="{core:T main.title}">
                     <DataGrid.Columns>
                         <DataGridTemplateColumn Header="{core:T main.col.name}" Width="3*" SortMemberPath="FileName">
                             <DataGridTemplateColumn.CellTemplate>
@@ -280,6 +284,8 @@
                             <Separator/>
                             <MenuItem x:Name="MenuCopyUrl" Header="{core:T main.ctx.copyUrl}" Click="CopyUrl_Click"/>
                             <MenuItem x:Name="MenuRefreshUrl" Header="{core:T main.ctx.changeUrl}" Click="ChangeUrl_Click" AutomationProperties.AutomationId="MenuRefreshUrl"/>
+                            <MenuItem x:Name="MenuRename" Header="{core:T main.ctx.rename}" InputGestureText="F2" Click="Rename_Click"/>
+                            <MenuItem x:Name="MenuCategory" Header="{core:T main.ctx.changeCategory}"/>
                             <MenuItem x:Name="MenuZip" Header="{core:T main.ctx.zipPreview}" Click="ZipPreview_Click"/>
                             <MenuItem x:Name="MenuHash" Header="{vb:T main.ctx.hash}" Click="HashItem_Click"/>
                             <MenuItem x:Name="MenuVerify" Header="{vb:T main.ctx.verifyNow}" Click="VerifyItem_Click"/>

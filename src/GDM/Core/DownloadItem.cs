@@ -30,7 +30,27 @@ public sealed partial class DownloadItem : ObservableObject
 
     string _url = "";
     /// <summary>The address the user (or the browser) gave. Redirect targets are never stored here.</summary>
-    public string Url { get => _url; set { if (Set(ref _url, value)) { ResolvedUrl = null; OnPropertyChanged(nameof(DisplayUrl)); } } }
+    public string Url
+    {
+        get => _url;
+        set
+        {
+            if (Set(ref _url, value))
+            {
+                ResolvedUrl = null;
+                HttpExecWarningAccepted = false;
+                if (Uri.TryCreate(value, UriKind.Absolute, out var u) && u.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+                    DownloadedOverPlainHttp = true;
+                OnPropertyChanged(nameof(DisplayUrl));
+            }
+        }
+    }
+
+    /// <summary>True when the download URL or any redirect hop used plain http://.</summary>
+    public bool DownloadedOverPlainHttp { get; set; }
+
+    /// <summary>True once the user confirmed opening this plain-HTTP executable/script file.</summary>
+    public bool HttpExecWarningAccepted { get; set; }
 
     /// <summary>Truncated display form of <see cref="Url"/> safe for DataGrid tooltips and dialog labels.</summary>
     [JsonIgnore] public string DisplayUrl => FileNames.FormatDisplayUrl(_url);
@@ -276,6 +296,8 @@ public sealed partial class DownloadItem : ObservableObject
         LastModified = null;
         ActiveTempPath = "";
         AddressRefreshed = false;
+        HttpExecWarningAccepted = false;
+        DownloadedOverPlainHttp = Uri.TryCreate(_url, UriKind.Absolute, out var u) && u.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Cookie header for a request to <paramref name="uri"/>: only for the exact host the cookies were read for, without HTTPS-to-HTTP downgrade.</summary>

@@ -210,6 +210,8 @@ public static class StreamDownloader
         var targetUrl = !string.IsNullOrWhiteSpace(item.ResolvedUrl) ? item.ResolvedUrl! : item.Url;
         if (!Uri.TryCreate(targetUrl.Trim(), UriKind.Absolute, out var startUri))
             throw new DownloadException(Loc.T("core.stream.err_manifest"));
+        if (startUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+            item.DownloadedOverPlainHttp = true;
 
         item.Status = DownloadStatus.Connecting;
         item.LastTry = DateTime.Now;
@@ -926,8 +928,12 @@ public static class StreamDownloader
 
     // ---------------- DASH ----------------
 
-    internal sealed record DashSegmentRef(Uri Uri, long? RangeOffset, long? RangeLength);
+    internal sealed record DashSegmentRef(Uri Uri, long? RangeOffset, long? RangeLength)
+    {
+        public DashSegmentRef? PeriodInit { get; init; }
+    }
     internal sealed record DashRep(string Id, string ContentKind, string MimeType, long Bandwidth, int Width, int Height, DashSegmentRef? Init, List<DashSegmentRef> Segments);
+    sealed record DashPeriod(double Duration, List<DashRep> Videos, List<DashRep> Audios);
 
     static MediaInfo InspectDash(string title, string mpdXml)
     {
@@ -1053,6 +1059,20 @@ public static class StreamDownloader
                         for (int idx = startIndex; idx < rep.Segments.Count; idx++)
                         {
                             var seg = rep.Segments[idx];
+                            if (seg.PeriodInit != null)
+                            {
+                                var (_, _, pInitPayload) = await FetchPieceAsync(item, seg.PeriodInit.Uri, seg.PeriodInit.RangeOffset, seg.PeriodInit.RangeLength, limiter, trackProgress: true, allowDiskSpill: true, ct).ConfigureAwait(false);
+                                try
+                                {
+                                    await pInitPayload.WriteToAsync(fs, null, null, ct).ConfigureAwait(false);
+                                    trackCounted += pInitPayload.CountedBytes;
+                                    committedDownloaded += pInitPayload.CountedBytes;
+                                }
+                                finally
+                                {
+                                    pInitPayload.Dispose();
+                                }
+                            }
                             var (_, _, segPayload) = await FetchPieceAsync(item, seg.Uri, seg.RangeOffset, seg.RangeLength, limiter, trackProgress: true, allowDiskSpill: true, ct).ConfigureAwait(false);
                             try
                             {
@@ -1101,7 +1121,84 @@ public static class StreamDownloader
                 }
             }
 
-            if (chosenVideo != null && chosenAudio != null)
+            bool hasMultiPeriodDistinctInit = MediaTools.FfmpegReady && (
+                (chosenVideo?.Segments.Any(s => s.PeriodInit != null) ?? false) ||
+                (chosenAudio?.Segments.Any(s => s.PeriodInit != null) ?? false));
+
+            if (hasMultiPeriodDistinctInit)
+            {
+                DeleteTrackPartial(baseTemp);
+                DeleteTrackPartial(videoTmp);
+                DeleteTrackPartial(audioTmp);
+                item.Downloaded = 0;
+                item.TotalSize = -1;
+                item.Status = DownloadStatus.Downloading;
+
+                var vGroups = chosenVideo != null ? SplitRepByPeriod(chosenVideo) : [];
+                var aGroups = chosenAudio != null ? SplitRepByPeriod(chosenAudio) : [];
+                int groupCount = Math.Max(vGroups.Count, aGroups.Count);
+                var periodOutputs = new List<string>(groupCount);
+                string concatListPath = baseTemp + ".concat.txt";
+                try
+                {
+                    int completedSegs = 0;
+                    for (int pIdx = 0; pIdx < groupCount; pIdx++)
+                    {
+                        var vPartRep = pIdx < vGroups.Count ? vGroups[pIdx] : null;
+                        var aPartRep = pIdx < aGroups.Count ? aGroups[pIdx] : null;
+                        if (vPartRep == null && aPartRep == null) continue;
+
+                        string pOut = $"{baseTemp}.p{pIdx}{outExt}";
+                        periodOutputs.Add(pOut);
+                        if (vPartRep != null && aPartRep != null)
+                        {
+                            string pV = $"{baseTemp}.p{pIdx}.vpart";
+                            string pA = $"{baseTemp}.p{pIdx}.apart";
+                            try
+                            {
+                                var vUrls = vPartRep.Segments.Select(FormatDashPieceUrl).ToList();
+                                var aUrls = aPartRep.Segments.Select(FormatDashPieceUrl).ToList();
+                                await DownloadRepAsync(vPartRep, $"p{pIdx}v", vUrls, null, pV, completedSegs).ConfigureAwait(false);
+                                completedSegs += vPartRep.Segments.Count;
+                                await DownloadRepAsync(aPartRep, $"p{pIdx}a", aUrls, null, pA, completedSegs).ConfigureAwait(false);
+                                completedSegs += aPartRep.Segments.Count;
+                                await MergeTracksAsync(pV, pA, pOut, ct).ConfigureAwait(false);
+                            }
+                            finally
+                            {
+                                DeleteTrackPartial(pV);
+                                DeleteTrackPartial(pA);
+                            }
+                        }
+                        else
+                        {
+                            var onlyRep = (vPartRep ?? aPartRep)!;
+                            var urls = onlyRep.Segments.Select(FormatDashPieceUrl).ToList();
+                            await DownloadRepAsync(onlyRep, $"p{pIdx}s", urls, null, pOut, completedSegs).ConfigureAwait(false);
+                            completedSegs += onlyRep.Segments.Count;
+                            MediaDownloader.TryDelete(pOut + ".state");
+                        }
+                    }
+
+                    item.Status = DownloadStatus.Merging;
+                    if (periodOutputs.Count == 1)
+                    {
+                        File.Move(periodOutputs[0], baseTemp, overwrite: true);
+                    }
+                    else
+                    {
+                        await ConcatenatePeriodFilesAsync(periodOutputs, concatListPath, baseTemp, ct).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    MediaDownloader.TryDelete(concatListPath);
+                    foreach (var pFile in periodOutputs)
+                        DeleteTrackPartial(pFile);
+                }
+                DeleteSidecars(baseTemp);
+            }
+            else if (chosenVideo != null && chosenAudio != null)
             {
                 DeleteTrackPartial(baseTemp);
                 string videoVariant = BuildDashVariantKey(mpdUri, chosenVideo);
@@ -1178,6 +1275,79 @@ public static class StreamDownloader
         return reps.OrderByDescending(r => r.Height).ThenByDescending(r => r.Bandwidth).First();
     }
 
+    static List<DashRep> SplitRepByPeriod(DashRep rep)
+    {
+        var groups = new List<DashRep>();
+        DashSegmentRef? curInit = rep.Init;
+        var curSegs = new List<DashSegmentRef>();
+        foreach (var seg in rep.Segments)
+        {
+            if (seg.PeriodInit != null && curSegs.Count > 0)
+            {
+                groups.Add(new DashRep(rep.Id, rep.ContentKind, rep.MimeType, rep.Bandwidth, rep.Width, rep.Height, curInit, curSegs));
+                curInit = seg.PeriodInit;
+                curSegs = [seg with { PeriodInit = null }];
+            }
+            else
+            {
+                if (seg.PeriodInit != null) curInit = seg.PeriodInit;
+                curSegs.Add(seg with { PeriodInit = null });
+            }
+        }
+        if (curSegs.Count > 0)
+            groups.Add(new DashRep(rep.Id, rep.ContentKind, rep.MimeType, rep.Bandwidth, rep.Width, rep.Height, curInit, curSegs));
+        return groups;
+    }
+
+    static async Task ConcatenatePeriodFilesAsync(List<string> periodFiles, string concatListPath, string outputPath, CancellationToken ct)
+    {
+        var sb = new StringBuilder();
+        foreach (var f in periodFiles)
+        {
+            var escaped = Path.GetFullPath(f).Replace("'", "'\\''");
+            sb.Append("file '").Append(escaped).AppendLine("'");
+        }
+        await File.WriteAllTextAsync(concatListPath, sb.ToString(), new UTF8Encoding(false), ct).ConfigureAwait(false);
+
+        var psi = new ProcessStartInfo(MediaTools.Ffmpeg)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+        };
+        psi.ArgumentList.Add("-y");
+        psi.ArgumentList.Add("-hide_banner");
+        psi.ArgumentList.Add("-loglevel");
+        psi.ArgumentList.Add("error");
+        psi.ArgumentList.Add("-f");
+        psi.ArgumentList.Add("concat");
+        psi.ArgumentList.Add("-safe");
+        psi.ArgumentList.Add("0");
+        psi.ArgumentList.Add("-i");
+        psi.ArgumentList.Add(concatListPath);
+        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add("copy");
+        if (outputPath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) || outputPath.EndsWith(".m4a", StringComparison.OrdinalIgnoreCase) || outputPath.EndsWith(".gdm", StringComparison.OrdinalIgnoreCase))
+        {
+            psi.ArgumentList.Add("-movflags");
+            psi.ArgumentList.Add("+faststart");
+        }
+        psi.ArgumentList.Add(outputPath);
+
+        int? exitCode = await RunToolProcessAsync(psi, ct).ConfigureAwait(false);
+        if (exitCode == 0 && File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
+            return;
+
+        throw new DownloadException(Loc.T("core.media.err_ffmpeg"));
+    }
+
+    static bool SameDashSegmentRef(DashSegmentRef? a, DashSegmentRef? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        return a.Uri == b.Uri && a.RangeOffset == b.RangeOffset && a.RangeLength == b.RangeLength;
+    }
+
     internal static (double Duration, List<DashRep> Video, List<DashRep> Audio) ParseDashMpd(Uri mpdUri, string mpdXml)
     {
         XDocument doc;
@@ -1203,65 +1373,220 @@ public static class StreamDownloader
         double mpdDuration = ParseIsoDurationSeconds(Attr(root, "mediaPresentationDuration"));
         var rootBase = ResolveBaseUrl(mpdUri, ChildText(root, "BaseURL"));
 
-        var period = Children(root, "Period").FirstOrDefault();
-        if (period == null)
+        var periodElements = Children(root, "Period").ToList();
+        if (periodElements.Count == 0)
             throw new DownloadException(Loc.T("core.stream.err_manifest"));
 
-        double periodDuration = ParseIsoDurationSeconds(Attr(period, "duration"));
-        double effectiveDuration = periodDuration > 0 ? periodDuration : mpdDuration;
-        var periodBase = ResolveBaseUrl(rootBase, ChildText(period, "BaseURL"));
-
-        var videos = new List<DashRep>();
-        var audios = new List<DashRep>();
-
-        foreach (var adapt in Children(period, "AdaptationSet"))
+        var explicitStarts = new double?[periodElements.Count];
+        var explicitDurations = new double?[periodElements.Count];
+        for (int i = 0; i < periodElements.Count; i++)
         {
-            var adaptBase = ResolveBaseUrl(periodBase, ChildText(adapt, "BaseURL"));
-            var adaptMime = Attr(adapt, "mimeType") ?? "";
-            var adaptContent = Attr(adapt, "contentType") ?? "";
-            var adaptTemplate = Children(adapt, "SegmentTemplate").FirstOrDefault();
-            var adaptSegList = Children(adapt, "SegmentList").FirstOrDefault();
-
-            foreach (var rep in Children(adapt, "Representation"))
+            if (Attr(periodElements[i], "start") is { Length: > 0 } sAttr)
+                explicitStarts[i] = ParseIsoDurationSeconds(sAttr);
+            if (Attr(periodElements[i], "duration") is { Length: > 0 } dAttr)
             {
-                var repBase = ResolveBaseUrl(adaptBase, ChildText(rep, "BaseURL"));
-                var repId = Attr(rep, "id") ?? "0";
-                var mime = Attr(rep, "mimeType") ?? adaptMime;
-                long.TryParse(Attr(rep, "bandwidth"), NumberStyles.None, CultureInfo.InvariantCulture, out long bw);
-                int.TryParse(Attr(rep, "width") ?? Attr(adapt, "width"), NumberStyles.None, CultureInfo.InvariantCulture, out int w);
-                int.TryParse(Attr(rep, "height") ?? Attr(adapt, "height"), NumberStyles.None, CultureInfo.InvariantCulture, out int h);
-
-                string kind = DetermineDashTrackKind(adaptContent, mime, w, h);
-                if (kind is not ("video" or "audio")) continue;
-
-                var repTemplate = Children(rep, "SegmentTemplate").FirstOrDefault() ?? adaptTemplate;
-                var repSegList = Children(rep, "SegmentList").FirstOrDefault() ?? adaptSegList;
-
-                DashSegmentRef? init = null;
-                var segs = new List<DashSegmentRef>();
-
-                if (repTemplate != null)
-                {
-                    (init, segs) = ExpandSegmentTemplate(repBase, adaptTemplate, repTemplate, repId, bw, effectiveDuration);
-                }
-                else if (repSegList != null)
-                {
-                    (init, segs) = ExpandSegmentList(repBase, repSegList);
-                }
-                else if (ChildText(rep, "BaseURL") != null || ChildText(adapt, "BaseURL") != null)
-                {
-                    segs.Add(new DashSegmentRef(repBase, null, null));
-                }
-
-                if (segs.Count == 0) continue;
-
-                var dashRep = new DashRep(repId, kind, mime, bw, w, h, init, segs);
-                if (kind == "video") videos.Add(dashRep);
-                else audios.Add(dashRep);
+                double d = ParseIsoDurationSeconds(dAttr);
+                if (d > 0) explicitDurations[i] = d;
             }
         }
 
-        return (effectiveDuration, videos, audios);
+        var parsedPeriods = new List<DashPeriod>(periodElements.Count);
+        double elapsed = 0;
+
+        for (int i = 0; i < periodElements.Count; i++)
+        {
+            var period = periodElements[i];
+            double curStart = explicitStarts[i] ?? elapsed;
+            double periodDuration;
+            if (explicitDurations[i] is double expDur)
+            {
+                periodDuration = expDur;
+            }
+            else if (i + 1 < periodElements.Count && explicitStarts[i + 1] is double nextStart && nextStart > curStart)
+            {
+                periodDuration = nextStart - curStart;
+            }
+            else if (i == periodElements.Count - 1 && mpdDuration > curStart)
+            {
+                periodDuration = mpdDuration - curStart;
+            }
+            else if (periodElements.Count == 1)
+            {
+                periodDuration = mpdDuration;
+            }
+            else
+            {
+                periodDuration = 0;
+            }
+
+            elapsed = curStart + Math.Max(0, periodDuration);
+
+            var periodBase = ResolveBaseUrl(rootBase, ChildText(period, "BaseURL"));
+            var periodTemplate = Children(period, "SegmentTemplate").FirstOrDefault();
+            var periodSegList = Children(period, "SegmentList").FirstOrDefault();
+
+            var pVideos = new List<DashRep>();
+            var pAudios = new List<DashRep>();
+
+            foreach (var adapt in Children(period, "AdaptationSet"))
+            {
+                var adaptBase = ResolveBaseUrl(periodBase, ChildText(adapt, "BaseURL"));
+                var adaptMime = Attr(adapt, "mimeType") ?? "";
+                var adaptContent = Attr(adapt, "contentType") ?? "";
+                var adaptTemplate = Children(adapt, "SegmentTemplate").FirstOrDefault() ?? periodTemplate;
+                var adaptSegList = Children(adapt, "SegmentList").FirstOrDefault() ?? periodSegList;
+
+                foreach (var rep in Children(adapt, "Representation"))
+                {
+                    var repBase = ResolveBaseUrl(adaptBase, ChildText(rep, "BaseURL"));
+                    var repId = Attr(rep, "id") ?? "0";
+                    var mime = Attr(rep, "mimeType") ?? adaptMime;
+                    long.TryParse(Attr(rep, "bandwidth"), NumberStyles.None, CultureInfo.InvariantCulture, out long bw);
+                    int.TryParse(Attr(rep, "width") ?? Attr(adapt, "width"), NumberStyles.None, CultureInfo.InvariantCulture, out int w);
+                    int.TryParse(Attr(rep, "height") ?? Attr(adapt, "height"), NumberStyles.None, CultureInfo.InvariantCulture, out int h);
+
+                    string kind = DetermineDashTrackKind(adaptContent, mime, w, h);
+                    if (kind is not ("video" or "audio")) continue;
+
+                    var repTemplate = Children(rep, "SegmentTemplate").FirstOrDefault() ?? adaptTemplate;
+                    var repSegList = Children(rep, "SegmentList").FirstOrDefault() ?? adaptSegList;
+
+                    DashSegmentRef? init = null;
+                    var segs = new List<DashSegmentRef>();
+
+                    if (repTemplate != null)
+                    {
+                        (init, segs) = ExpandSegmentTemplate(repBase, adaptTemplate, repTemplate, repId, bw, periodDuration);
+                    }
+                    else if (repSegList != null)
+                    {
+                        (init, segs) = ExpandSegmentList(repBase, repSegList);
+                    }
+                    else if (ChildText(rep, "BaseURL") != null || ChildText(adapt, "BaseURL") != null || ChildText(period, "BaseURL") != null)
+                    {
+                        segs.Add(new DashSegmentRef(repBase, null, null));
+                    }
+
+                    if (segs.Count == 0) continue;
+
+                    var dashRep = new DashRep(repId, kind, mime, bw, w, h, init, segs);
+                    if (kind == "video") pVideos.Add(dashRep);
+                    else pAudios.Add(dashRep);
+                }
+            }
+
+            parsedPeriods.Add(new DashPeriod(periodDuration, pVideos, pAudios));
+        }
+
+        double effectiveDuration = elapsed > 0 ? elapsed : mpdDuration;
+        if (parsedPeriods.Count == 1)
+            return (effectiveDuration, parsedPeriods[0].Videos, parsedPeriods[0].Audios);
+
+        var stitchedVideos = StitchDashTrackAcrossPeriods(parsedPeriods, isVideo: true);
+        var stitchedAudios = StitchDashTrackAcrossPeriods(parsedPeriods, isVideo: false);
+        return (effectiveDuration, stitchedVideos, stitchedAudios);
+    }
+
+    static List<DashRep> StitchDashTrackAcrossPeriods(List<DashPeriod> periods, bool isVideo)
+    {
+        var anchorList = periods.Select(p => isVideo ? p.Videos : p.Audios).FirstOrDefault(l => l.Count > 0);
+        if (anchorList == null || anchorList.Count == 0)
+            return [];
+
+        var templates = new List<DashRep>(anchorList);
+        if (isVideo)
+        {
+            var seenHeights = new HashSet<int>(templates.Where(t => t.Height > 0).Select(t => t.Height));
+            foreach (var p in periods)
+            {
+                foreach (var v in p.Videos)
+                {
+                    if (v.Height > 0 && seenHeights.Add(v.Height))
+                        templates.Add(v);
+                }
+            }
+        }
+
+        var result = new List<DashRep>(templates.Count);
+        foreach (var tpl in templates)
+        {
+            DashSegmentRef? firstInit = null;
+            DashSegmentRef? prevInit = null;
+            bool sawFirstPeriod = false;
+            var combinedSegs = new List<DashSegmentRef>();
+
+            foreach (var period in periods)
+            {
+                var candidates = isVideo ? period.Videos : period.Audios;
+                if (candidates.Count == 0) continue;
+
+                var chosen = MatchDashRepForPeriod(candidates, tpl, isVideo);
+                if (chosen.Segments.Count == 0) continue;
+
+                if (combinedSegs.Count + chosen.Segments.Count > MaxDashSegments)
+                    throw new DownloadException(Loc.T("core.stream.err_manifest"));
+
+                if (!sawFirstPeriod)
+                {
+                    firstInit = chosen.Init;
+                    prevInit = chosen.Init;
+                    sawFirstPeriod = true;
+                    combinedSegs.AddRange(chosen.Segments);
+                }
+                else
+                {
+                    bool initChanged = chosen.Init != null && !SameDashSegmentRef(chosen.Init, prevInit);
+                    for (int k = 0; k < chosen.Segments.Count; k++)
+                    {
+                        var s = chosen.Segments[k];
+                        if (k == 0 && initChanged)
+                            s = s with { PeriodInit = chosen.Init };
+                        combinedSegs.Add(s);
+                    }
+                    if (chosen.Init != null)
+                        prevInit = chosen.Init;
+                }
+            }
+
+            if (combinedSegs.Count > 0)
+                result.Add(new DashRep(tpl.Id, tpl.ContentKind, tpl.MimeType, tpl.Bandwidth, tpl.Width, tpl.Height, firstInit, combinedSegs));
+        }
+
+        return result;
+    }
+
+    static DashRep MatchDashRepForPeriod(List<DashRep> candidates, DashRep target, bool isVideo)
+    {
+        if (isVideo)
+        {
+            var exact = candidates.FirstOrDefault(c =>
+                string.Equals(c.Id, target.Id, StringComparison.Ordinal) &&
+                (target.Height <= 0 || c.Height == target.Height));
+            if (exact != null) return exact;
+
+            if (target.Height > 0)
+            {
+                var sameHeight = candidates
+                    .Where(c => c.Height == target.Height)
+                    .OrderBy(c => Math.Abs(c.Bandwidth - target.Bandwidth))
+                    .FirstOrDefault();
+                if (sameHeight != null) return sameHeight;
+
+                return PickDashVideo(candidates, target.Height.ToString(CultureInfo.InvariantCulture));
+            }
+
+            return candidates.OrderByDescending(c => c.Height).ThenByDescending(c => c.Bandwidth).First();
+        }
+        else
+        {
+            var exact = candidates.FirstOrDefault(c => string.Equals(c.Id, target.Id, StringComparison.Ordinal));
+            if (exact != null) return exact;
+
+            return candidates
+                .OrderBy(c => target.Bandwidth > 0 ? Math.Abs(c.Bandwidth - target.Bandwidth) : 0)
+                .ThenByDescending(c => c.Bandwidth)
+                .First();
+        }
     }
 
     static string DetermineDashTrackKind(string contentType, string mime, int w, int h)
@@ -1649,7 +1974,7 @@ public static class StreamDownloader
         public long CountedBytes { get; set; }
     }
 
-    static readonly string[] SidecarSuffixes = [".state", ".vpart", ".vpart.state", ".apart", ".apart.state", ".remux.mp4"];
+    static readonly string[] SidecarSuffixes = [".state", ".vpart", ".vpart.state", ".apart", ".apart.state", ".remux.mp4", ".concat.txt"];
 
     public static void DeleteSidecars(string? tempPath)
     {
@@ -1829,7 +2154,7 @@ public static class StreamDownloader
             : seg.Uri.AbsoluteUri;
 
     static string BuildDashVariantKey(Uri mpdUri, DashRep rep)
-        => $"dash|{rep.ContentKind}|{mpdUri.AbsoluteUri}|{rep.Id}|{rep.Bandwidth}|{rep.Width}x{rep.Height}|{(rep.Init != null ? FormatDashPieceUrl(rep.Init) : "")}";
+        => $"dash|{rep.ContentKind}|{mpdUri.AbsoluteUri}|{rep.Id}|{rep.Bandwidth}|{rep.Width}x{rep.Height}|{rep.Segments.Count}|{(rep.Init != null ? FormatDashPieceUrl(rep.Init) : "")}";
 
     // ---------------- HTTP helpers with Netscape + host cookie matching ----------------
 

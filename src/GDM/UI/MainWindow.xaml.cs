@@ -285,12 +285,36 @@ public partial class MainWindow : Window
         else App.Instance.ShowProgress(item);
     }
 
+    public void RefreshCategoriesAndList()
+    {
+        UpdateCounts();
+        _view?.Refresh();
+    }
+
+    public void SelectDownloadItem(DownloadItem item)
+    {
+        if (item == null) return;
+        if (!_current.Match(item) || !MatchesSearch(item))
+        {
+            if (_search.Length > 0) SearchBox.Clear();
+            CategoryList.SelectedIndex = 0;
+        }
+        Grid.SelectedItem = item;
+        Grid.ScrollIntoView(item);
+        Grid.Focus();
+    }
+
     void Grid_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Delete)
         {
             // Shift+Delete removes the file too, as it does everywhere in Windows (it always asks first).
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) DeleteWithFile_Click(sender, e); else Delete_Click(sender, e);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F2)
+        {
+            Rename_Click(sender, e);
             e.Handled = true;
         }
         else if (e.Key == Key.Enter && Selected.FirstOrDefault() is { } item)

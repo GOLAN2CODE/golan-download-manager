@@ -254,7 +254,20 @@
                                   CanUserAddRows="False" CanUserDeleteRows="False"
                                   AutomationProperties.Name="{core:T win.grabber.target_files}">
                             <DataGrid.Columns>
-                                <DataGridCheckBoxColumn Header="✓" Binding="{Binding Checked, Mode=TwoWay}" Width="38"/>
+                                <DataGridCheckBoxColumn Header="✓" Binding="{Binding Checked, Mode=TwoWay}" Width="38">
+                                    <DataGridCheckBoxColumn.ElementStyle>
+                                        <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+                                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                                            <Setter Property="AutomationProperties.Name" Value="{core:T win.grabber.select_row_aria}"/>
+                                        </Style>
+                                    </DataGridCheckBoxColumn.ElementStyle>
+                                    <DataGridCheckBoxColumn.EditingElementStyle>
+                                        <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+                                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                                            <Setter Property="AutomationProperties.Name" Value="{core:T win.grabber.select_row_aria}"/>
+                                        </Style>
+                                    </DataGridCheckBoxColumn.EditingElementStyle>
+                                </DataGridCheckBoxColumn>
                                 <DataGridTextColumn Header="{core:T win.grabber.col.icon}" Binding="{Binding Glyph}" IsReadOnly="True" Width="46" FontFamily="{StaticResource IconFont}">
                                     <DataGridTextColumn.ElementStyle>
                                         <Style TargetType="TextBlock">

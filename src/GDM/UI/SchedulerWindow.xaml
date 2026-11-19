@@ -108,7 +108,9 @@
                                                  AutomationProperties.Name="{core:T win.scheduler.browse_open_title}"/>
                                     </DockPanel>
                                     <CheckBox x:Name="ExitBox" Content="{core:T win.scheduler.exit_when_done}" Click="QueueOptionChanged_Click"/>
-                                    <CheckBox x:Name="ShutdownBox" Content="{core:T win.scheduler.shutdown_when_done}" Click="QueueOptionChanged_Click"/>
+                                    <CheckBox x:Name="SleepBox" Content="{core:T win.scheduler.sleep_when_done}" Click="PowerOption_Click"/>
+                                    <CheckBox x:Name="HibernateBox" Content="{core:T win.scheduler.hibernate_when_done}" Click="PowerOption_Click"/>
+                                    <CheckBox x:Name="ShutdownBox" Content="{core:T win.scheduler.shutdown_when_done}" Click="PowerOption_Click"/>
                                     <CheckBox x:Name="ForceBox" Content="{core:T win.scheduler.force_processes}" Click="QueueOptionChanged_Click"/>
                                     <TextBlock x:Name="NextStartText" Foreground="{DynamicResource AccentText}" FontWeight="SemiBold" Margin="0,12,0,0"/>
                                     <TextBlock Text="{core:T win.scheduler.running_note}"

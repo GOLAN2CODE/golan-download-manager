@@ -127,15 +127,20 @@ public sealed class GrabberStats : ObservableObject
     public void IncDownloaded() { Interlocked.Increment(ref _downloaded); OnPropertyChanged(nameof(Downloaded)); }
 }
 
+public sealed record PageLinksResult(IReadOnlyList<(string Url, string Text)> Links, bool CapHit);
+
 /// <summary>Breadth-first crawler. Raises <see cref="FileFound"/> for every matching file (on a worker thread).</summary>
 public sealed class SiteGrabber(GrabberProject p)
 {
+    public const int MaxPageBytes = 16 * 1024 * 1024;
+
     static readonly Regex LinkRx = new(@"(?:href|src|data-src|data-href)\s*=\s*(?:""([^""]+)""|'([^']+)'|([^\s>]+))(?:[^>]*>([^<]{0,200}))?",
         RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(2));
     static readonly HashSet<string> PageExt = new(StringComparer.OrdinalIgnoreCase) { "", "html", "htm", "php", "asp", "aspx", "jsp", "shtml", "cfm", "cgi", "pl" };
 
     public GrabberStats Stats { get; } = new();
     public event Action<GrabbedFile>? FileFound;
+    public event Action<Uri>? PageCapHit;
 
     readonly ConcurrentDictionary<string, byte> _seenPages = new(StringComparer.OrdinalIgnoreCase);
     readonly ConcurrentDictionary<string, byte> _seenFiles = new(StringComparer.OrdinalIgnoreCase);
@@ -174,9 +179,10 @@ public sealed class SiteGrabber(GrabberProject p)
     {
         Stats.Status = Loc.T("core.grabber.opening", page.Uri);
         string html;
+        bool capHit;
         try
         {
-            html = await FetchPageAsync(page.Uri, start, ct);
+            (html, capHit) = await ReadPageStreamedAsync(page.Uri, start, p.Login, p.Password, MaxPageBytes, ct);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
@@ -188,6 +194,8 @@ public sealed class SiteGrabber(GrabberProject p)
         {
             Stats.IncPagesProcessed();
         }
+        if (capHit)
+            PageCapHit?.Invoke(page.Uri);
 
         MatchCollection matches;
         try { matches = LinkRx.Matches(html); }
@@ -257,54 +265,123 @@ public sealed class SiteGrabber(GrabberProject p)
     bool IsFileMask(string ext)
         => ext.Length > 0 && Masks(p.FileMasks).Any(m => !m.EndsWith(".*") && Wildcard.Match(m, "x." + ext));
 
-    async Task<string> FetchPageAsync(Uri uri, Uri startUri, CancellationToken ct, int hop = 0)
+    public static async Task<PageLinksResult> FetchPageLinksAsync(Uri pageUri, int maxBytes = MaxPageBytes, CancellationToken ct = default)
     {
-        if (hop > 15) return "";
+        ArgumentNullException.ThrowIfNull(pageUri);
+        var (html, capHit) = await ReadPageStreamedAsync(pageUri, pageUri, null, null, maxBytes, ct).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(html))
+            return new PageLinksResult([], capHit);
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var links = new List<(string Url, string Text)>();
+        MatchCollection matches;
+        try { matches = LinkRx.Matches(html); }
+        catch (RegexMatchTimeoutException) { return new PageLinksResult(links, capHit); }
+
+        foreach (Match m in matches)
+        {
+            var raw = WebUtility.HtmlDecode((m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Success ? m.Groups[2].Value : m.Groups[3].Value).Trim());
+            if (raw.Length == 0 || raw.StartsWith('#') || raw.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase)
+                || raw.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!Uri.TryCreate(pageUri, raw, out var link)
+                || (link.Scheme != Uri.UriSchemeHttp && link.Scheme != Uri.UriSchemeHttps
+                    && !link.Scheme.Equals("ftp", StringComparison.OrdinalIgnoreCase)
+                    && !link.Scheme.Equals("ftps", StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            link = new UriBuilder(link) { Fragment = "" }.Uri;
+            if (!seen.Add(link.AbsoluteUri)) continue;
+            var linkText = WebUtility.HtmlDecode(m.Groups[4].Value).Trim();
+            links.Add((link.AbsoluteUri, linkText));
+        }
+
+        return new PageLinksResult(links, capHit);
+    }
+
+    public static async Task<(string Html, bool CapHit)> ReadPageStreamedAsync(
+        Uri uri,
+        Uri? startUri = null,
+        string? login = null,
+        string? password = null,
+        int maxBytes = MaxPageBytes,
+        CancellationToken ct = default,
+        int hop = 0)
+    {
+        if (hop > 15 || maxBytes <= 0) return ("", false);
+        var originUri = startUri ?? uri;
         using var req = new HttpRequestMessage(HttpMethod.Get, uri);
         req.Headers.TryAddWithoutValidation("User-Agent", HttpDownloader.DefaultUserAgent);
         req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,*/*;q=0.8");
-        if (!string.IsNullOrWhiteSpace(p.Login)
-            && uri.Host.Equals(startUri.Host, StringComparison.OrdinalIgnoreCase)
-            && !(startUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) && !uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        if (!string.IsNullOrWhiteSpace(login)
+            && uri.Host.Equals(originUri.Host, StringComparison.OrdinalIgnoreCase)
+            && !(originUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) && !uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
         {
             req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic",
-                Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{p.Login}:{p.Password}")));
+                Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{login}:{password ?? ""}")));
         }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
-        using var resp = await HttpDownloader.Client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+        using var resp = await HttpDownloader.Client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
         if ((int)resp.StatusCode is >= 300 and < 400 && resp.Headers.Location is { } loc)
         {
             var nextUri = loc.IsAbsoluteUri ? loc : new Uri(uri, loc);
-            if (!HttpDownloader.IsAllowedRedirectTarget(uri, nextUri) || !HttpDownloader.IsAllowedRedirectTarget(startUri, nextUri)) return "";
-            return await FetchPageAsync(nextUri, startUri, ct, hop + 1);
+            if (!HttpDownloader.IsAllowedRedirectTarget(uri, nextUri) || !HttpDownloader.IsAllowedRedirectTarget(originUri, nextUri))
+                return ("", false);
+            return await ReadPageStreamedAsync(nextUri, originUri, login, password, maxBytes, ct, hop + 1).ConfigureAwait(false);
         }
         resp.EnsureSuccessStatusCode();
         var type = resp.Content.Headers.ContentType?.MediaType ?? "";
-        if (!type.Contains("html") && !type.Contains("xml")) return "";
-        const int maxBytes = 8 * 1024 * 1024;
-        if (resp.Content.Headers.ContentLength > maxBytes) return "";
-        var rawStream = await resp.Content.ReadAsStreamAsync(timeout.Token);
+        if (!type.Contains("html", StringComparison.OrdinalIgnoreCase)
+            && !type.Contains("xml", StringComparison.OrdinalIgnoreCase)
+            && !type.Equals("text/plain", StringComparison.OrdinalIgnoreCase))
+            return ("", false);
+
+        var rawStream = await resp.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
         await using var s = HttpDownloader.WrapDecompressionStream(rawStream, resp, decompressGzipTargets: true);
         using var ms = new MemoryStream();
         var buf = new byte[16384];
         int total = 0;
-        while (true)
+        bool capHit = false;
+        while (total < maxBytes)
         {
-            int n = await s.ReadAsync(buf, timeout.Token);
+            int toRead = Math.Min(buf.Length, maxBytes - total);
+            int n = await s.ReadAsync(buf.AsMemory(0, toRead), timeout.Token).ConfigureAwait(false);
             if (n <= 0) break;
-            total += n;
-            if (total > maxBytes) return "";
             ms.Write(buf, 0, n);
+            total += n;
         }
+        if (total >= maxBytes)
+        {
+            if (resp.Content.Headers.ContentLength is long cl && cl > maxBytes)
+            {
+                capHit = true;
+            }
+            else
+            {
+                int probe = await s.ReadAsync(buf.AsMemory(0, 1), timeout.Token).ConfigureAwait(false);
+                if (probe > 0) capHit = true;
+            }
+        }
+
         var charset = resp.Content.Headers.ContentType?.CharSet;
-        var enc = System.Text.Encoding.UTF8;
+        var enc = System.Text.Encoding.GetEncoding(
+            System.Text.Encoding.UTF8.CodePage,
+            System.Text.EncoderFallback.ReplacementFallback,
+            System.Text.DecoderFallback.ReplacementFallback);
         if (!string.IsNullOrWhiteSpace(charset))
         {
-            try { enc = System.Text.Encoding.GetEncoding(charset.Trim('"', '\'')); }
+            try
+            {
+                var baseEnc = System.Text.Encoding.GetEncoding(charset.Trim('"', '\'', ' '));
+                enc = System.Text.Encoding.GetEncoding(
+                    baseEnc.CodePage,
+                    System.Text.EncoderFallback.ReplacementFallback,
+                    System.Text.DecoderFallback.ReplacementFallback);
+            }
             catch (ArgumentException) { /* unsupported charset header; fall back to UTF-8 */ }
         }
-        return enc.GetString(ms.ToArray());
+        return (enc.GetString(ms.GetBuffer(), 0, (int)ms.Length), capHit);
     }
 
     static IEnumerable<string> Masks(string s) => s.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries).Select(m => m.Trim());

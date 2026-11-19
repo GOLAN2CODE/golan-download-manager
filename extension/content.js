@@ -140,10 +140,33 @@
   const MIN_W = 200;
   const MIN_H = 120;
   const CHECK_MS = 1500;
+  const MUTATION_DEBOUNCE_MS = 250;
   const HOST_ID = "gdm-dl-host";
   const hostname = location.hostname;
+  const SHADOW_PLAYER_SELECTORS = [
+    "vjs-shadow-player",
+    "video-js",
+    "mux-player",
+    "media-controller",
+    "media-theme",
+    "shaka-player",
+    "jw-player",
+    "vm-player",
+    "plyr-video",
+    "ytd-player",
+    ".video-js",
+    ".jwplayer",
+    ".plyr"
+  ];
+  const observedShadowHosts = new Set();
 
   let hiddenForSite = false;
+  let captureDisabled = false;
+  let siteExcluded = false;
+  let watchersActive = false;
+  let linkListenersActive = false;
+  let localInterceptEnabled = true;
+  let localGdmSettings = null;
   let host = null;
   let shadow = null;
   let btn = null;
@@ -155,6 +178,48 @@
   let busy = false;
   let alive = true;
 
+  function wildcardToRegex(pattern) {
+    const esc = String(pattern || "")
+      .trim()
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*+/g, ".*")
+      .replace(/\?/g, ".");
+    return new RegExp("^" + esc + "$", "i");
+  }
+
+  function hostMatches(pattern, hostStr) {
+    let p = String(pattern || "").trim().toLowerCase();
+    if (!p) return false;
+    if (p.includes("://")) {
+      try {
+        p = new URL(p).hostname;
+      } catch (e) {
+        return false;
+      }
+    }
+    const h = String(hostStr || "").toLowerCase();
+    if (!h) return false;
+    if (p.includes("*")) return wildcardToRegex(p).test(h);
+    return h === p || h.endsWith("." + p);
+  }
+
+  function matchesExcludedSettings(settings) {
+    if (!settings || typeof settings !== "object") return false;
+    const h = (hostname || "").toLowerCase();
+    if (h && Array.isArray(settings.exceptionSites) && settings.exceptionSites.some((p) => hostMatches(p, h))) {
+      return true;
+    }
+    const href = String((location && location.href) || "");
+    if (href && Array.isArray(settings.exceptionAddresses) && settings.exceptionAddresses.some((p) => wildcardToRegex(p).test(href))) {
+      return true;
+    }
+    return false;
+  }
+
+  function isPageInactive() {
+    return captureDisabled || siteExcluded;
+  }
+
   // The extension may be reloaded/removed while the page stays open.
   function extensionAlive() {
     try {
@@ -164,8 +229,8 @@
     }
   }
 
-  function shutdown() {
-    alive = false;
+  function stopWatchers() {
+    watchersActive = false;
     if (checkTimer) {
       clearInterval(checkTimer);
       checkTimer = null;
@@ -189,8 +254,34 @@
       window.removeEventListener("resize", schedulePosition);
       window.removeEventListener("popstate", onSpaNavigate);
     }
+    targetVideo = null;
     if (host) host.remove();
     host = null;
+    shadow = null;
+    btn = null;
+    label = null;
+  }
+
+  function detachLinkListeners() {
+    if (!linkListenersActive) return;
+    linkListenersActive = false;
+    if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+      document.removeEventListener("mousedown", onDocMouseDown, true);
+      document.removeEventListener("click", onDocClick, true);
+    }
+  }
+
+  function attachLinkListeners() {
+    if (linkListenersActive || typeof document === "undefined" || typeof document.addEventListener !== "function") return;
+    linkListenersActive = true;
+    document.addEventListener("mousedown", onDocMouseDown, true);
+    document.addEventListener("click", onDocClick, true);
+  }
+
+  function shutdown() {
+    alive = false;
+    detachLinkListeners();
+    stopWatchers();
   }
 
   function isYouTubeVideoPage() {
@@ -223,12 +314,30 @@
     return false;
   }
 
-  function collectVideos(root, out, depth = 0) {
-    if (!root || depth > 4 || typeof root.querySelectorAll !== "function") return;
+  function collectVideos(root, out, depth = 0, visited = new Set()) {
+    if (!root || depth > 4 || visited.has(root) || typeof root.querySelectorAll !== "function") return;
+    visited.add(root);
     for (const v of root.querySelectorAll("video")) out.push(v);
     if (depth >= 4) return;
-    for (const el of root.querySelectorAll("*")) {
-      if (el && el.shadowRoot) collectVideos(el.shadowRoot, out, depth + 1);
+    for (const sel of SHADOW_PLAYER_SELECTORS) {
+      let hosts;
+      try {
+        hosts = root.querySelectorAll(sel);
+      } catch (e) {
+        hosts = [];
+      }
+      for (const el of hosts) {
+        if (el && el.shadowRoot) collectVideos(el.shadowRoot, out, depth + 1, visited);
+      }
+    }
+    if (depth === 0 && observedShadowHosts.size > 0) {
+      for (const el of observedShadowHosts) {
+        if (!el || el.isConnected === false || !el.shadowRoot) {
+          observedShadowHosts.delete(el);
+        } else {
+          collectVideos(el.shadowRoot, out, 1, visited);
+        }
+      }
     }
   }
 
@@ -382,19 +491,67 @@
 
   function check() {
     if (!extensionAlive()) return shutdown();
+    if (isPageInactive()) return hideButton();
     if (document.hidden === true) return;
     targetVideo = hiddenForSite ? null : findVideo();
     schedulePosition();
   }
 
-  // Throttled check for DOM mutations.
+  function nodeMayAffectVideo(node) {
+    if (!node || typeof node !== "object") return false;
+    if (node.id === HOST_ID) return false;
+    const tag = typeof node.tagName === "string" ? node.tagName.toLowerCase() : "";
+    if (tag === "video" || tag === "source" || tag === "iframe" || tag.includes("-")) {
+      if (node.shadowRoot) observedShadowHosts.add(node);
+      return true;
+    }
+    if (node.shadowRoot) {
+      observedShadowHosts.add(node);
+      return true;
+    }
+    if (typeof node.querySelector === "function") {
+      try {
+        if (node.querySelector("video")) return true;
+      } catch (e) {
+        // ignore
+      }
+    }
+    return false;
+  }
+
+  // Debounced check for relevant DOM mutations.
   let mutationTimer = null;
-  function onMutation() {
-    if (mutationTimer) return;
+  function onMutation(mutations) {
+    if (isPageInactive()) return;
+    if (Array.isArray(mutations) && mutations.length > 0) {
+      let relevant = false;
+      for (const m of mutations) {
+        if (!m) continue;
+        const added = m.addedNodes || [];
+        const removed = m.removedNodes || [];
+        if (added.length === 0 && removed.length === 0) {
+          relevant = true;
+          continue;
+        }
+        for (const n of added) {
+          if (nodeMayAffectVideo(n)) relevant = true;
+        }
+        if (!relevant) {
+          for (const n of removed) {
+            if (nodeMayAffectVideo(n)) {
+              relevant = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!relevant) return;
+    }
+    if (mutationTimer) clearTimeout(mutationTimer);
     mutationTimer = setTimeout(() => {
       mutationTimer = null;
       check();
-    }, 400);
+    }, MUTATION_DEBOUNCE_MS);
   }
 
   function onDownloadClick(e) {
@@ -472,28 +629,46 @@
     });
   }
 
-  function loadHidden(cb) {
-    storageLocalGet("hiddenHosts", (res) => {
-      siteHidden = !!(res && res.hiddenHosts && res.hiddenHosts[hostname]);
-      hiddenForSite = siteHidden || frameHidden || panelDisabled;
-      cb();
+  // React when the popup/options toggles capture, updates excluded sites, or restores the button.
+  function syncActiveState() {
+    captureDisabled =
+      localInterceptEnabled === false ||
+      Boolean(localGdmSettings && localGdmSettings.intercept === false);
+    siteExcluded = matchesExcludedSettings(localGdmSettings);
+    if (isPageInactive()) {
+      detachLinkListeners();
+      stopWatchers();
+      return;
+    }
+    attachLinkListeners();
+    loadPanelSettings(() => {
+      if (isPageInactive()) return;
+      if (!watchersActive) start();
+      else check();
     });
   }
 
-  // React when the popup re-enables the button for this site or GDM updates panel settings.
   try {
     if (api.storage && api.storage.onChanged) {
       api.storage.onChanged.addListener((changes, area) => {
-        if (area !== "local") return;
+        if (area !== "local" || !changes) return;
+        let stateNeedsSync = false;
+        if (changes.interceptEnabled) {
+          localInterceptEnabled = changes.interceptEnabled.newValue !== false;
+          stateNeedsSync = true;
+        }
+        if (changes.gdmState) {
+          const nv = changes.gdmState.newValue;
+          localGdmSettings = nv && nv.settings ? nv.settings : null;
+          stateNeedsSync = true;
+        }
         if (changes.hiddenHosts) {
           const map = changes.hiddenHosts.newValue || {};
           siteHidden = !!map[hostname];
           hiddenForSite = siteHidden || frameHidden || panelDisabled;
-          check();
+          if (!stateNeedsSync && watchersActive) check();
         }
-        if (changes.gdmState) {
-          loadPanelSettings(check);
-        }
+        if (stateNeedsSync) syncActiveState();
       });
     }
   } catch (e) {
@@ -505,14 +680,16 @@
   }
 
   function onVisibilityChange() {
-    if (!document.hidden) check();
+    if (!document.hidden && !isPageInactive()) check();
   }
 
   function onSpaNavigate() {
-    setTimeout(check, 300);
+    if (!isPageInactive()) setTimeout(check, 300);
   }
 
   function start() {
+    if (watchersActive || isPageInactive()) return;
+    watchersActive = true;
     document.addEventListener("encrypted", onEncrypted, true);
     check();
     checkTimer = setInterval(check, CHECK_MS);
@@ -530,76 +707,78 @@
   }
 
   // Special keys on links: Alt + click = let the browser download, Alt + Ctrl + click = force GDM.
-  document.addEventListener(
-    "mousedown",
-    (e) => {
-      if (!e || !e.isTrusted) return;
-      if (!e.altKey || e.button !== 0) return;
-      const a = e.target && e.target.closest && e.target.closest("a[href]");
-      if (!a || !/^(?:https?|ftps?):\/\//i.test(a.href)) return;
-      sendMsg({ type: "link-keys", url: a.href, prevent: !e.ctrlKey, force: e.ctrlKey });
-    },
-    true
-  );
+  function onDocMouseDown(e) {
+    if (!extensionAlive() || isPageInactive()) return;
+    if (!e || !e.isTrusted) return;
+    if (!e.altKey || e.button !== 0) return;
+    const a = e.target && e.target.closest && e.target.closest("a[href]");
+    if (!a || !/^(?:https?|ftps?):\/\//i.test(a.href)) return;
+    sendMsg({ type: "link-keys", url: a.href, prevent: !e.ctrlKey, force: e.ctrlKey });
+  }
 
   const inFlightMagnets = new Set();
 
   // Intercept magnet: clicks, record <a download> filename hints (including JS a.click()), and handle Alt+Ctrl force clicks.
-  document.addEventListener(
-    "click",
-    (e) => {
-      if (!e || e.defaultPrevented) return;
-      const target = e.target;
-      if (!target || typeof target.closest !== "function") return;
+  function onDocClick(e) {
+    if (!extensionAlive() || isPageInactive()) return;
+    if (!e || e.defaultPrevented) return;
+    const target = e.target;
+    if (!target || typeof target.closest !== "function") return;
 
-      // 1) Magnet links (trusted primary click without Alt-only bypass).
-      if (e.isTrusted && e.button === 0 && !(e.altKey && !e.ctrlKey)) {
-        const mag = target.closest('a[href^="magnet:" i]') || target.closest('a[href^="magnet:"]');
-        if (mag) {
-          const href = ((typeof mag.getAttribute === "function" && mag.getAttribute("href")) || mag.href || "").trim();
-          if (/^magnet:\?(?:[^#]*&)?xt(?:\.\d+)?=urn:(?:btih:(?:[0-9a-f]{40}|[a-z2-7]{32})|btmh:1220[0-9a-f]{64})(?:[&#]|$)/i.test(href)) {
-            e.preventDefault();
-            e.stopPropagation();
-            if (inFlightMagnets.has(href)) return;
-            inFlightMagnets.add(href);
-            sendMsg({ type: "magnet-link", url: href }, (res) => {
-              inFlightMagnets.delete(href);
-              if (!res || !res.intercepted) {
-                location.href = href;
-              }
-            });
-            return;
-          }
+    // 1) Magnet links (trusted primary click without Alt-only bypass).
+    if (e.isTrusted && e.button === 0 && !(e.altKey && !e.ctrlKey)) {
+      const mag = target.closest('a[href^="magnet:" i]') || target.closest('a[href^="magnet:"]');
+      if (mag) {
+        const href = ((typeof mag.getAttribute === "function" && mag.getAttribute("href")) || mag.href || "").trim();
+        if (/^magnet:\?(?:[^#]*&)?xt(?:\.\d+)?=urn:(?:btih:(?:[0-9a-f]{40}|[a-z2-7]{32})|btmh:1220[0-9a-f]{64})(?:[&#]|$)/i.test(href)) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (inFlightMagnets.has(href)) return;
+          inFlightMagnets.add(href);
+          sendMsg({ type: "magnet-link", url: href }, (res) => {
+            inFlightMagnets.delete(href);
+            if (!res || !res.intercepted) {
+              location.href = href;
+            }
+          });
+          return;
         }
       }
+    }
 
-      const a = target.closest("a[href]");
-      if (!a || !/^(?:https?|ftps?):\/\//i.test(a.href)) return;
-      const dlAttr = typeof a.getAttribute === "function" ? a.getAttribute("download") : null;
+    const a = target.closest("a[href]");
+    if (!a || !/^(?:https?|ftps?):\/\//i.test(a.href)) return;
+    const dlAttr = typeof a.getAttribute === "function" ? a.getAttribute("download") : null;
 
-      // 2) Alt + Ctrl + Click: hand inline or unlisted links directly to Golan instead of opening a browser tab.
-      if (e.isTrusted && e.button === 0 && e.altKey && e.ctrlKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        sendMsg({ type: "force-link", url: a.href, filename: dlAttr || "" }, (res) => {
-          if (!res || !res.intercepted) {
-            location.href = a.href;
-          }
-        });
-        return;
-      }
+    // 2) Alt + Ctrl + Click: hand inline or unlisted links directly to Golan instead of opening a browser tab.
+    if (e.isTrusted && e.button === 0 && e.altKey && e.ctrlKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      sendMsg({ type: "force-link", url: a.href, filename: dlAttr || "" }, (res) => {
+        if (!res || !res.intercepted) {
+          location.href = a.href;
+        }
+      });
+      return;
+    }
 
-      // 3) Links with the download attribute (trusted user clicks only).
-      if (e.isTrusted && !(e.altKey && !e.ctrlKey) && dlAttr !== null) {
-        sendMsg({ type: "download-attr", url: a.href, filename: dlAttr });
-      }
-    },
-    true
-  );
+    // 3) Links with the download attribute (trusted user clicks only).
+    if (e.isTrusted && !(e.altKey && !e.ctrlKey) && dlAttr !== null) {
+      sendMsg({ type: "download-attr", url: a.href, filename: dlAttr });
+    }
+  }
 
   // The desktop app can turn the video button off, or off for some sites.
   function loadPanelSettings(cb) {
     sendMsg({ type: "panel-settings" }, (res) => {
+      if (res && (res.captureDisabled === true || res.siteExcluded === true)) {
+        if (res.captureDisabled) captureDisabled = true;
+        if (res.siteExcluded) siteExcluded = true;
+        detachLinkListeners();
+        stopWatchers();
+        if (cb) cb();
+        return;
+      }
       panelDisabled = Boolean(res && res.enabled === false);
       hiddenForSite = siteHidden || frameHidden || panelDisabled;
       if (hiddenForSite) hideButton();
@@ -607,5 +786,11 @@
     });
   }
 
-  loadHidden(() => loadPanelSettings(start));
+  storageLocalGet(["interceptEnabled", "gdmState", "hiddenHosts"], (res) => {
+    localInterceptEnabled = !(res && res.interceptEnabled === false);
+    localGdmSettings = res && res.gdmState && res.gdmState.settings ? res.gdmState.settings : null;
+    siteHidden = !!(res && res.hiddenHosts && res.hiddenHosts[hostname]);
+    hiddenForSite = siteHidden || frameHidden || panelDisabled;
+    syncActiveState();
+  });
 })();

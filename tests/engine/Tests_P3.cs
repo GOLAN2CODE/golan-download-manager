@@ -401,23 +401,26 @@ public static class Tests_P3
         try
         {
             string propsCode = File.ReadAllText(Path.Combine(gdmRoot, "UI", "PropertiesWindow.xaml.cs"));
+            // The move itself lives in DownloadManager.TryRenameItem (shared with the list's Rename command).
+            string mgrCode = File.ReadAllText(Path.Combine(gdmRoot, "Core", "DownloadManager.cs"));
+            int renameIdx = mgrCode.IndexOf("public bool TryRenameItem(", StringComparison.Ordinal);
+            string renameBlock = renameIdx >= 0 ? mgrCode[renameIdx..] : "";
             Check("P3-6: PropertiesWindow validates unconfigured UNC folder before Directory.CreateDirectory",
                 // IsAllowedFolder is the one place that decides network shares (configured ones are allowed).
                 propsCode.Contains("AddDownloadWindow.IsAllowedFolder(newDir") &&
                 propsCode.IndexOf("AddDownloadWindow.IsAllowedFolder(newDir", StringComparison.Ordinal) <
-                propsCode.IndexOf("Directory.CreateDirectory(newDir)", StringComparison.Ordinal));
+                propsCode.IndexOf("_manager.TryRenameItem(", StringComparison.Ordinal) &&
+                renameBlock.Contains("Directory.CreateDirectory(newDir)"));
             Check("P3-6: PropertiesWindow calls PathRegistry.Release(_item.Id) before PathRegistry.Claim",
-                propsCode.Contains("PathRegistry.Release(_item.Id)") &&
-                propsCode.IndexOf("PathRegistry.Release(_item.Id)", StringComparison.Ordinal) <
-                propsCode.IndexOf("PathRegistry.Claim(_item.Id", StringComparison.Ordinal));
+                renameBlock.Contains("PathRegistry.Release(item.Id)") &&
+                renameBlock.IndexOf("PathRegistry.Release(item.Id)", StringComparison.Ordinal) <
+                renameBlock.IndexOf("PathRegistry.Claim(item.Id", StringComparison.Ordinal));
             Check("P3-6: PropertiesWindow logs temp move failures via Log.Write",
-                propsCode.Contains("Log.Write("));
+                renameBlock.Contains("Log.Write(\"rename/move failed"));
 
-            // Verify temp move happens before _item.SaveDir = newDir in non-running branch
-            int notRunningIdx = propsCode.IndexOf("else if (!_running && !_completed)", StringComparison.Ordinal);
-            string notRunningBlock = notRunningIdx >= 0 ? propsCode[notRunningIdx..] : "";
-            int moveIdx = notRunningBlock.IndexOf("File.Move(", StringComparison.Ordinal);
-            int saveDirAssignIdx = notRunningBlock.IndexOf("_item.SaveDir = newDir;", StringComparison.Ordinal);
+            // Verify the files move before the item is pointed at the new folder
+            int moveIdx = renameBlock.IndexOf("File.Move(", StringComparison.Ordinal);
+            int saveDirAssignIdx = renameBlock.IndexOf("item.SaveDir = newDir;", StringComparison.Ordinal);
             Check("P3-6: PropertiesWindow moves originalTemp before mutating _item.SaveDir",
                 moveIdx >= 0 && saveDirAssignIdx > moveIdx);
         }

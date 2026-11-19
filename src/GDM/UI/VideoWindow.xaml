@@ -32,6 +32,12 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="item" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                             </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="item" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="item" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>

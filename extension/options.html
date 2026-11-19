@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-i18n="optionsTitle">Golan Extension Options</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main class="container">
+    <header class="head">
+      <img class="logo" src="icons/icon48.png" alt="" width="40" height="40">
+      <div class="brand">
+        <h1 data-i18n="optionsTitle">Golan Extension Options</h1>
+        <span class="sub" data-i18n="extName">Golan Download Manager</span>
+      </div>
+    </header>
+
+    <section class="card">
+      <label class="toggle-row" for="optInterceptToggle">
+        <span class="toggle-text">
+          <strong data-i18n="popupInterceptTitle">Capture downloads from browser</strong>
+          <small data-i18n="popupInterceptDesc">Send downloaded files to Golan instead of the browser</small>
+        </span>
+        <span class="switch">
+          <input type="checkbox" id="optInterceptToggle" role="switch" checked>
+          <span class="slider"></span>
+        </span>
+      </label>
+
+      <hr class="divider">
+
+      <label class="toggle-row" for="optVideoSniffingToggle">
+        <span class="toggle-text">
+          <strong data-i18n="optVideoSniffingTitle">Video sniffing on pages</strong>
+          <small data-i18n="optVideoSniffingDesc">Detect video streams and show the download button on videos</small>
+        </span>
+        <span class="switch">
+          <input type="checkbox" id="optVideoSniffingToggle" role="switch" checked>
+          <span class="slider"></span>
+        </span>
+      </label>
+    </section>
+
+    <section class="card">
+      <div class="field">
+        <label class="field-label" for="optMinSizeKB" data-i18n="optMinSizeLabel">Minimum file size (KB)</label>
+        <p class="field-hint" data-i18n="optMinSizeHint">Capture unlisted files at or above this size (0 disables size threshold)</p>
+        <div class="inline-input">
+          <input type="number" id="optMinSizeKB" min="0" max="10485760" step="1" value="0">
+          <span class="unit-badge" data-i18n="unitKB">KB</span>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="field">
+        <label class="field-label" for="optExtensions" data-i18n="optExtensionsLabel">Captured file types</label>
+        <p class="field-hint" data-i18n="optExtensionsHint">File extensions separated by spaces or commas</p>
+        <textarea id="optExtensions" rows="4" dir="ltr" spellcheck="false"></textarea>
+        <div class="btn-row">
+          <button class="btn primary" id="optSaveBtn" type="button" data-i18n="optSaveBtn">Save changes</button>
+          <button class="btn secondary" id="optResetExtBtn" type="button" data-i18n="optResetExtBtn">Restore default types</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="field">
+        <h2 class="section-title" data-i18n="optExcludedSitesTitle">Excluded sites</h2>
+        <p class="field-hint" data-i18n="optExcludedSitesHint">Do not capture downloads or scan pages on these domains (e.g. example.com or *.example.com)</p>
+        <div class="site-add-row">
+          <input type="text" id="optSiteInput" dir="ltr" autocomplete="off" spellcheck="false" data-i18n-placeholder="optSitePlaceholder" placeholder="example.com">
+          <button class="btn primary" id="optAddSiteBtn" type="button" data-i18n="optAddSiteBtn">Add</button>
+        </div>
+        <ul class="sites-list" id="optSitesList"></ul>
+        <p class="empty" id="optSitesEmpty" data-i18n="optSitesEmpty">No excluded sites.</p>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>

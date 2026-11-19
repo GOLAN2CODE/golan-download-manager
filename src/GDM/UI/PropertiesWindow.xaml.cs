@@ -23,6 +23,8 @@ public partial class PropertiesWindow : Window
         _initialPassword = item.Password;
         Glyph.Text = item.Glyph;
         NameBox.Text = item.FileName;
+        CategoryBox.ItemsSource = Categories.All;
+        CategoryBox.SelectedItem = Categories.Get(item.Category);
         TypeText.Text = item.Extension;
         StatusText.Text = item.StatusText;
         SizeText.Text = item.TotalSize > 0 ? Fmt.Size(item.TotalSize) : Fmt.Size(item.Downloaded);
@@ -43,12 +45,18 @@ public partial class PropertiesWindow : Window
         QueueText.Text = manager.Settings.FindQueue(item.QueueId)?.Name ?? Loc.T("main.props.noQueue");
         ExpectedHashBox.Text = item.ExpectedHash;
         AutoExtractCheck.IsChecked = item.AutoExtract;
-        NameBox.IsEnabled = !_running && !_completed;
+        NameBox.IsEnabled = !_running;
         FolderBox.IsEnabled = !_running;
         BrowseButton.IsEnabled = !_running;
         UrlBox.IsEnabled = !_running;
         ReferrerText.IsEnabled = !_running;
         OpenButton.Visibility = _completed ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    void CategoryBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (CategoryBox.SelectedItem is CategoryDef cat)
+            Glyph.Text = cat.Glyph;
     }
 
     void Browse_Click(object sender, RoutedEventArgs e)
@@ -106,10 +114,8 @@ public partial class PropertiesWindow : Window
 
     void Ok_Click(object sender, RoutedEventArgs e)
     {
-        var originalDir = _item.SaveDir;
-        var originalTemp = _item.TempPath;
         var originalUrl = _item.Url;
-        if (!_running && !_completed && string.IsNullOrWhiteSpace(NameBox.Text))
+        if (!_running && string.IsNullOrWhiteSpace(NameBox.Text))
         {
             Confirm.Info(this, Loc.T("main.props.title"), Loc.T("win.props.err_empty_name"));
             return;
@@ -130,106 +136,50 @@ public partial class PropertiesWindow : Window
             return;
         }
 
-        // The folder checks and file moves below can still refuse. The item's own fields are written only after they
-        // pass, so an error followed by Cancel leaves the download exactly as it was (address, cookies, login).
-        void ApplyFields()
+        if (!_running)
         {
-            if (!_running)
-            {
-                if (urlChanged)
-                {
-                    SanitizeCredentialsOnUrlChange(_item, originalUrl, newUrl, _initialLogin, _initialPassword, ref loginVal, ref passwordVal);
-                    _item.Url = newUrl;
-                    _item.ResolvedUrl = "";
-                    _item.SanitizeMegaUrlIfNeeded();
-                }
-                _item.Referrer = ReferrerText.Text.Trim();
-            }
-            _item.Description = DescriptionBox.Text;
-            _item.ExpectedHash = expectedHash;
-            _item.AutoExtract = AutoExtractCheck.IsChecked;
-            _item.Login = loginVal;
-            _item.Password = passwordVal;
-        }
-
-        if (_completed && !string.Equals(_item.SaveDir, FolderBox.Text.Trim(), StringComparison.OrdinalIgnoreCase))
-        {
-            var newDir = FolderBox.Text.Trim();
-            // IsAllowedFolder already decides network shares: those under a folder the user configured are fine.
-            if (!AddDownloadWindow.IsAllowedFolder(newDir, _manager.Settings))
-            {
-                Confirm.Info(this, Loc.T("main.props.moveFailedTitle"), Loc.T("main.add.invalidFolder"));
-                return;
-            }
-            var target = Path.Combine(newDir, _item.FileName);
-            try
-            {
-                Directory.CreateDirectory(newDir);
-                File.Move(Path.Combine(originalDir, _item.FileName), target, overwrite: false);
-                _item.SaveDir = newDir;
-                PathRegistry.Release(_item.Id);
-                PathRegistry.Claim(_item.Id, _item.FullPath);
-            }
-            catch (Exception ex)
-            {
-                Confirm.Info(this, Loc.T("main.props.moveFailedTitle"), FriendlyError.Format(ex));
-                return;
-            }
-        }
-        else if (!_running && !_completed)
-        {
-            var sanitized = FileNames.Sanitize(NameBox.Text);
             var newDir = FolderBox.Text.Trim();
             if (!AddDownloadWindow.IsAllowedFolder(newDir, _manager.Settings))
             {
                 Confirm.Info(this, Loc.T("main.props.moveFailedTitle"), Loc.T("main.add.invalidFolder"));
                 return;
             }
-            try
+            bool nameChanged = !string.Equals(_item.FileName, NameBox.Text.Trim(), StringComparison.Ordinal);
+            bool dirChanged = !string.Equals(_item.SaveDir, newDir, StringComparison.OrdinalIgnoreCase);
+            if (nameChanged || dirChanged)
             {
-                Directory.CreateDirectory(newDir);
-            }
-            catch (Exception ex)
-            {
-                Log.Write("props folder create failed: " + ex.Message);
-                Confirm.Info(this, Loc.T("main.props.moveFailedTitle"), FriendlyError.Format(ex));
-                return;
-            }
-            var tempFolder = string.IsNullOrWhiteSpace(DownloadItem.TempRoot) ? newDir : DownloadItem.TempRoot;
-            var newTemp = string.IsNullOrWhiteSpace(DownloadItem.TempRoot)
-                ? Path.Combine(newDir, sanitized + ".gdm")
-                : Path.Combine(DownloadItem.TempRoot, $"{_item.Id:N}.gdm");
-            if (!string.Equals(originalTemp, newTemp, StringComparison.OrdinalIgnoreCase))
-            {
-                if (!File.Exists(originalTemp)) _item.ActiveTempPath = "";
-                try
+                if (!_manager.TryRenameItem(_item, NameBox.Text, out var renameErr, targetDirOverride: newDir))
                 {
-                    Directory.CreateDirectory(tempFolder);
-                    if (File.Exists(originalTemp))
-                    {
-                        File.Move(originalTemp, newTemp, overwrite: false);
-                        _item.ActiveTempPath = newTemp;
-                    }
-                    StreamDownloader.MoveSidecars(originalTemp, newTemp);
-                }
-                catch (Exception ex)
-                {
-                    Log.Write("props temp move failed: " + ex.Message);
-                    Confirm.Info(this, Loc.T("main.props.moveFailedTitle"), FriendlyError.Format(ex));
+                    Confirm.Info(this, Loc.T("main.props.title"), renameErr);
                     return;
                 }
             }
-            if (!string.Equals(_item.FileName, sanitized, StringComparison.Ordinal))
-            {
-                _item.FileName = sanitized;
-                _item.NameLocked = true;
-            }
-            _item.SaveDir = newDir;
-            PathRegistry.Release(_item.Id);
-            PathRegistry.Claim(_item.Id, _item.FullPath);
         }
-        ApplyFields();
+
+        if (!_running)
+        {
+            if (urlChanged)
+            {
+                SanitizeCredentialsOnUrlChange(_item, originalUrl, newUrl, _initialLogin, _initialPassword, ref loginVal, ref passwordVal);
+                _item.Url = newUrl;
+                _item.ResolvedUrl = "";
+                _item.SanitizeMegaUrlIfNeeded();
+            }
+            _item.Referrer = ReferrerText.Text.Trim();
+        }
+
+        if (CategoryBox.SelectedItem is CategoryDef selectedCat && !string.Equals(_item.Category, selectedCat.Key, StringComparison.Ordinal))
+        {
+            _manager.ChangeCategory(_item, selectedCat.Key, save: false);
+        }
+
+        _item.Description = DescriptionBox.Text;
+        _item.ExpectedHash = expectedHash;
+        _item.AutoExtract = AutoExtractCheck.IsChecked;
+        _item.Login = loginVal;
+        _item.Password = passwordVal;
         _manager.Save();
+        App.Instance?.MainView?.RefreshCategoriesAndList();
         if (System.Windows.Interop.ComponentDispatcher.IsThreadModal)
             DialogResult = true;
         else

@@ -150,5 +150,6 @@
   "autoinstall.offer.heading": "هل تريد تثبيت إضافة المتصفح تلقائيًا؟",
   "autoinstall.offer.body": "لم يعثر جولان على إضافته في المتصفحات المكتشفة لديك ({0}). اضغط «التثبيت الآن» لفتح المتصفح أمامك وإعدادها تلقائيًا، أو اختر «لاحقًا» لتثبيتها في أي وقت من قائمة المساعدة أو الخيارات.",
   "autoinstall.offer.install_now": "التثبيت الآن",
-  "autoinstall.offer.later": "لاحقًا"
+  "autoinstall.offer.later": "لاحقًا",
+  "win.options.torrent.upload_limit": "الحد الأقصى لسرعة الرفع (ك.ب/ث — 0 تعني بلا حد):"
 }

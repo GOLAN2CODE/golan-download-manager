@@ -34,6 +34,7 @@
                 <Setter Property="UseLayoutRounding" Value="True"/>
                 <Setter Property="SnapsToDevicePixels" Value="True"/>
                 <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="ui:Theme.SyncTitleBar" Value="True"/>
             </Style>
 
             <!-- Slim themed ScrollBar -->
@@ -182,7 +183,7 @@
                                     </Setter>
                                 </MultiDataTrigger>
                                 <Trigger Property="IsKeyboardFocused" Value="True">
-                                    <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource BrandInk}"/>
+                                    <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource Ink}"/>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter Property="Opacity" Value="0.45"/>
@@ -217,7 +218,7 @@
                                     <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource DangerPressed}"/>
                                 </Trigger>
                                 <Trigger Property="IsKeyboardFocused" Value="True">
-                                    <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource BrandInk}"/>
+                                    <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter Property="Opacity" Value="0.45"/>
@@ -303,6 +304,9 @@
                                     <Setter TargetName="b" Property="Background" Value="{DynamicResource AccentSoft}"/>
                                     <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                 </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
+                                </Trigger>
                                 <MultiDataTrigger>
                                     <MultiDataTrigger.Conditions>
                                         <Condition Binding="{Binding IsPressed, RelativeSource={RelativeSource Self}}" Value="True"/>
@@ -344,6 +348,9 @@
                                     <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                     <Setter Property="Foreground" Value="{DynamicResource AccentInk}"/>
                                     <Setter Property="FontWeight" Value="SemiBold"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
                                 </Trigger>
                                 <MultiDataTrigger>
                                     <MultiDataTrigger.Conditions>
@@ -443,10 +450,12 @@
                 <Setter Property="Padding" Value="10,6"/>
                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="FocusVisualStyle" Value="{StaticResource BrandFocusVisual}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ComboBoxItem">
-                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}" Margin="2,1">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="1"
+                                    CornerRadius="6" Padding="{TemplateBinding Padding}" Margin="2,1">
                                 <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                                   VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
                             </Border>
@@ -458,6 +467,9 @@
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentSoft}"/>
                                     <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
                                     <Setter Property="FontWeight" Value="SemiBold"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -533,6 +545,9 @@
                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
                             </Grid>
                             <ControlTemplate.Triggers>
+                                <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                    <Setter TargetName="toggleButton" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
+                                </Trigger>
                                 <Trigger Property="IsEditable" Value="True">
                                     <Setter Property="IsTabStop" Value="False"/>
                                     <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
@@ -588,6 +603,9 @@
                                     <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                     <Setter TargetName="indet" Property="Visibility" Value="Visible"/>
                                 </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
+                                </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter Property="Opacity" Value="0.5"/>
                                 </Trigger>
@@ -629,6 +647,9 @@
                                     <Setter TargetName="circle" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                     <Setter TargetName="dot" Property="Visibility" Value="Visible"/>
                                 </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="circle" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
+                                </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter Property="Opacity" Value="0.5"/>
                                 </Trigger>
@@ -649,7 +670,8 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ListBoxItem">
-                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="1.5"
+                                    CornerRadius="6" Padding="{TemplateBinding Padding}">
                                 <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                                   VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
                             </Border>
@@ -659,8 +681,15 @@
                                 </Trigger>
                                 <Trigger Property="IsSelected" Value="True">
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentSoft}"/>
+                                    <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                     <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
                                     <Setter Property="FontWeight" Value="SemiBold"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                    <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -797,6 +826,9 @@
             <Style TargetType="DataGridRow">
                 <Setter Property="Background" Value="{DynamicResource Surface}"/>
                 <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+                <Setter Property="BorderBrush" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="1.5"/>
+                <Setter Property="FocusVisualStyle" Value="{StaticResource BrandFocusVisual}"/>
                 <Setter Property="MinHeight" Value="40"/>
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
@@ -804,6 +836,13 @@
                     </Trigger>
                     <Trigger Property="IsSelected" Value="True">
                         <Setter Property="Background" Value="{DynamicResource AccentSoft}"/>
+                        <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                    </Trigger>
+                    <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
+                    </Trigger>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
                     </Trigger>
                 </Style.Triggers>
             </Style>
@@ -851,6 +890,9 @@
                                     <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
                                     <Setter Property="FontWeight" Value="SemiBold"/>
                                 </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
+                                </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
@@ -884,6 +926,9 @@
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentSoft}"/>
                                     <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                     <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -928,16 +973,21 @@
                                               Background="Transparent" BorderBrush="Transparent"
                                               Foreground="{TemplateBinding Foreground}"
                                               IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
-                                              Cursor="Hand" FocusVisualStyle="{x:Null}">
+                                              Cursor="Hand" FocusVisualStyle="{StaticResource BrandFocusVisual}">
                                     <ToggleButton.Template>
                                         <ControlTemplate TargetType="ToggleButton">
-                                            <Border Background="Transparent" Padding="0,4">
+                                            <Border x:Name="hb" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="6" Padding="4,4">
                                                 <StackPanel Orientation="Horizontal">
                                                     <Path x:Name="arrow" Data="M 0,0 L 4,4 L 8,0" Stroke="{DynamicResource Muted}"
                                                           StrokeThickness="1.6" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                                     <ContentPresenter ContentSource="Content" VerticalAlignment="Center"/>
                                                 </StackPanel>
                                             </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                                    <Setter TargetName="hb" Property="BorderBrush" Value="{DynamicResource FocusRing}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
                                         </ControlTemplate>
                                     </ToggleButton.Template>
                                     <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/>
@@ -959,6 +1009,7 @@
                 <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="Padding" Value="6,4"/>
+                <Setter Property="FocusVisualStyle" Value="{StaticResource BrandFocusVisual}"/>
             </Style>
 
             <Style TargetType="TreeView">

@@ -10,7 +10,7 @@ namespace Golan.Gdm.Integration;
 /// <summary>Local named pipe used by the browser host and by second instances. Restricted to the current user.</summary>
 public static class Ipc
 {
-    public const int MaxLineChars = 16 * 1024 * 1024;
+    public const int MaxLineChars = 20 * 1024 * 1024;
     static readonly TimeSpan ReadTimeout = TimeSpan.FromMinutes(10);
 
     /// <summary>
@@ -180,6 +180,8 @@ public sealed class PipeServer
 /// <summary>Chrome native-messaging host. Chrome starts GDM.exe with the extension origin as argument.</summary>
 public static class NativeHost
 {
+    public const int MaxMessageBytes = 16 * 1024 * 1024;
+
     [DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int processId);
     const int ASFW_ANY = -1;
 
@@ -206,11 +208,18 @@ public static class NativeHost
                 var header = ReadExactly(stdin, 4);
                 if (header == null) break;
                 int len = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(header);
-                if (len <= 0 || len > 1024 * 1024) break;
-                var body = ReadExactly(stdin, len);
+                if (len <= 0) break;
+                var body = ReadStreamedBody(stdin, len, MaxMessageBytes, out bool capped);
                 if (body == null) break;
                 inFlight.RemoveAll(t => t.IsCompleted);
-                inFlight.Add(Task.Run(() => AnswerAsync(body, stdout, writeLock)));
+                if (capped)
+                {
+                    inFlight.Add(Task.Run(() => AnswerCappedAsync(body, stdout, writeLock)));
+                }
+                else
+                {
+                    inFlight.Add(Task.Run(() => AnswerAsync(body, stdout, writeLock)));
+                }
             }
             Task.WaitAll([.. inFlight], TimeSpan.FromMinutes(11));
             return 0;
@@ -220,6 +229,80 @@ public static class NativeHost
             Log.Write("native host error: " + ex);
             return 1;
         }
+    }
+
+    static byte[]? ReadStreamedBody(Stream s, int totalLength, int maxBytes, out bool capped)
+    {
+        capped = totalLength > maxBytes;
+        int keepBytes = Math.Min(totalLength, maxBytes);
+        using var ms = new MemoryStream(Math.Min(keepBytes, 64 * 1024));
+        var chunk = new byte[Math.Min(64 * 1024, Math.Max(1, keepBytes))];
+        int read = 0;
+        while (read < keepBytes)
+        {
+            int toRead = Math.Min(chunk.Length, keepBytes - read);
+            int n = s.Read(chunk, 0, toRead);
+            if (n == 0) return null;
+            ms.Write(chunk, 0, n);
+            read += n;
+        }
+
+        int remainingToDrain = totalLength - keepBytes;
+        if (remainingToDrain > 0)
+        {
+            var drainBuf = new byte[64 * 1024];
+            while (remainingToDrain > 0)
+            {
+                int n = s.Read(drainBuf, 0, Math.Min(drainBuf.Length, remainingToDrain));
+                if (n == 0) return null;
+                remainingToDrain -= n;
+            }
+        }
+
+        return ms.ToArray();
+    }
+
+    static async Task AnswerCappedAsync(byte[] prefix, Stream stdout, object writeLock)
+    {
+        JsonNode? requestId = TryExtractRidFromPrefix(prefix);
+        try
+        {
+            var notifyMsg = new JsonObject { ["action"] = "downloadAllCapHit" };
+            await Ipc.SendAsync(notifyMsg, 400);
+        }
+        catch { /* best-effort user notification */ }
+
+        var reply = new JsonObject
+        {
+            ["ok"] = false,
+            ["capped"] = true,
+            ["error"] = Loc.T("win.batch.page_cap_msg"),
+        };
+        if (requestId != null) reply["_rid"] = requestId;
+        var bytes = Encoding.UTF8.GetBytes(reply.ToJsonString());
+        lock (writeLock)
+        {
+            try
+            {
+                stdout.Write(BitConverter.GetBytes(bytes.Length));
+                stdout.Write(bytes);
+                stdout.Flush();
+            }
+            catch (IOException) { /* the browser closed the port */ }
+        }
+    }
+
+    static JsonNode? TryExtractRidFromPrefix(byte[] prefix)
+    {
+        try
+        {
+            int scanLen = Math.Min(prefix.Length, 4096);
+            var head = Encoding.UTF8.GetString(prefix, 0, scanLen);
+            var m = System.Text.RegularExpressions.Regex.Match(head, @"""_rid""\s*:\s*(\d+|""[^""]*"")");
+            if (m.Success) return JsonNode.Parse(m.Groups[1].Value);
+        }
+        catch { /* ignore malformed prefix */ }
+        return null;
     }
 
     static async Task AnswerAsync(byte[] body, Stream stdout, object writeLock)

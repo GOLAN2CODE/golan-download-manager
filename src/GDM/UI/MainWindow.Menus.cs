@@ -126,11 +126,15 @@ public partial class MainWindow
 
     void FileMenu_Opened(object sender, RoutedEventArgs e)
     {
-        var item = Selected.FirstOrDefault();
+        var sel = Selected;
+        var item = sel.FirstOrDefault();
         bool completedFile = item != null && item.Status == DownloadStatus.Completed && File.Exists(item.FullPath);
         FileStop.IsEnabled = item is { IsActive: true } || item?.Status == DownloadStatus.Queued;
         FileStart.IsEnabled = item != null && !item.IsActive && item.Status != DownloadStatus.Completed;
         FileRemove.IsEnabled = FileRedownload.IsEnabled = FileProps.IsEnabled = item != null;
+        FileRename.IsEnabled = item != null && !_manager.IsRunning(item);
+        FileCategory.IsEnabled = sel.Count > 0;
+        PopulateCategorySubmenu(FileCategory, item);
         FileHash.IsEnabled = FileVerify.IsEnabled = completedFile;
         FileExtract.IsEnabled = completedFile && Extractor.IsSupportedArchive(item!.FullPath);
     }
@@ -179,10 +183,13 @@ public partial class MainWindow
         }
         bool ok = await Integrity.VerifyItemAsync(item, _settings);
         _manager.Save();
+        var target = item;
         if (ok && item.HashState == HashVerifyState.Verified)
-            App.Instance.Notify(Loc.T($"hash.status.verified"), Loc.T($"hash.notify.verified", item.FileName));
+            App.Instance.Notify(Loc.T($"hash.status.verified"), Loc.T($"hash.notify.verified", item.FileName),
+                onClick: () => App.Instance.ActOnDownloadNotification(target, openCompleteWindow: true));
         else if (item.HashState == HashVerifyState.Mismatch)
-            App.Instance.Notify(Loc.T($"hash.status.mismatch"), Loc.T($"hash.notify.mismatch", item.FileName), error: true);
+            App.Instance.Notify(Loc.T($"hash.status.mismatch"), Loc.T($"hash.notify.mismatch", item.FileName), error: true,
+                onClick: () => App.Instance.ActOnDownloadNotification(target));
         else
             // No fingerprint was found to compare with: say so instead of doing nothing.
             Confirm.Info(this, Loc.T("hash.notify.noHashTitle"), Loc.T("hash.notify.noHash", item.FileName));
@@ -213,10 +220,13 @@ public partial class MainWindow
             _ => item.LastResult
         };
         _manager.Save();
+        var target = item;
         if (res.State == ArchiveExtractState.Extracted)
-            App.Instance.Notify(Loc.T($"extract.status.done"), item.FileName);
+            App.Instance.Notify(Loc.T($"extract.status.done"), item.FileName,
+                onClick: () => App.Instance.ActOnDownloadNotification(target, openExtractedDir: true));
         else if (res.State == ArchiveExtractState.Failed)
-            App.Instance.Notify(Loc.T("main.notify.failed"), $"{item.FileName}\n{item.LastResult}", error: true);
+            App.Instance.Notify(Loc.T("main.notify.failed"), $"{item.FileName}\n{item.LastResult}", error: true,
+                onClick: () => App.Instance.ActOnDownloadNotification(target));
     }
 
     // ---------- Downloads menu ----------
@@ -339,7 +349,13 @@ public partial class MainWindow
 
     void Options_Click(object sender, RoutedEventArgs e) => App.Instance.ShowOptions(this);
 
-    public void ShowShutdownBanner() => ShutdownBanner.Visibility = Visibility.Visible;
+    public void ShowShutdownBanner(string? text = null)
+    {
+        ShutdownBannerText.Text = text ?? Loc.T("main.shutdown.banner");
+        ShutdownBanner.Visibility = Visibility.Visible;
+    }
+
+    public void HideShutdownBanner() => ShutdownBanner.Visibility = Visibility.Collapsed;
 
     void CancelShutdown_Click(object sender, RoutedEventArgs e)
     {
@@ -537,6 +553,9 @@ public partial class MainWindow
         MenuShowProgress.IsEnabled = item != null;
         MenuQueue.IsEnabled = hasSel;
         MenuCopyUrl.IsEnabled = item != null;
+        MenuRename.IsEnabled = item != null && !_manager.IsRunning(item);
+        MenuCategory.IsEnabled = hasSel;
+        PopulateCategorySubmenu(MenuCategory, item);
         MenuDelete.IsEnabled = MenuDeleteWithFile.IsEnabled = hasSel;
         MenuProperties.IsEnabled = item != null;
         MenuZip.Visibility = item != null && item.Status != DownloadStatus.Completed && item.FileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
@@ -561,11 +580,57 @@ public partial class MainWindow
         }
     }
 
+    void PopulateCategorySubmenu(MenuItem parent, DownloadItem? primary)
+    {
+        parent.Items.Clear();
+        foreach (var cat in Categories.All)
+        {
+            var catKey = cat.Key;
+            var mi = new MenuItem
+            {
+                Header = cat.Name,
+                IsCheckable = true,
+                IsChecked = primary != null && string.Equals(primary.Category, catKey, StringComparison.Ordinal),
+            };
+            mi.Click += (_, _) =>
+            {
+                var items = Selected;
+                if (items.Count == 0) return;
+                foreach (var i in items)
+                    _manager.ChangeCategory(i, catKey, save: false);
+                _manager.Save();
+                UpdateCounts();
+                _view.Refresh();
+            };
+            parent.Items.Add(mi);
+        }
+    }
+
+    void Rename_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected.FirstOrDefault() is not { } item) return;
+        if (_manager.IsRunning(item))
+        {
+            Confirm.Info(this, Loc.T("main.rename.title"), Loc.T("main.rename.err_running"));
+            return;
+        }
+        var raw = InputDialog.Ask(this, Loc.T("main.rename.title"), Loc.T("main.rename.prompt"), item.FileName);
+        if (raw == null) return;
+        if (!_manager.TryRenameItem(item, raw, out var err))
+        {
+            Confirm.Info(this, Loc.T("main.rename.title"), err);
+            return;
+        }
+        UpdateCounts();
+        _view.Refresh();
+    }
+
     void OpenFile_Click(object sender, RoutedEventArgs e) { if (Selected.FirstOrDefault() is { } i) OpenFile(i); }
     void OpenWith_Click(object sender, RoutedEventArgs e)
     {
         if (Selected.FirstOrDefault() is not { } i) return;
         if (!File.Exists(i.FullPath)) { Confirm.Info(this, Loc.T("main.title"), Loc.T("main.open.missingFile")); return; }
+        if (!ConfirmPlainHttpExecutable(i, this)) return;
         AfterDownload.OpenWith(i.FullPath);
     }
     void OpenFolder_Click(object sender, RoutedEventArgs e) { if (Selected.FirstOrDefault() is { } i) OpenFolder(i); }
@@ -645,6 +710,53 @@ public partial class MainWindow
         _manager.Save();
     }
 
+    static readonly HashSet<string> WarnExecutableExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".exe", ".msi", ".bat", ".cmd", ".ps1", ".scr", ".com", ".js", ".vbs", ".jar",
+    };
+
+    public static bool IsExecutableOrScriptPath(string? pathOrName)
+    {
+        if (string.IsNullOrWhiteSpace(pathOrName)) return false;
+        var ext = Path.GetExtension(pathOrName.TrimEnd(' ', '.'));
+        return ext.Length > 1 && WarnExecutableExtensions.Contains(ext);
+    }
+
+    public static bool WasDownloadedOverPlainHttp(DownloadItem item)
+    {
+        if (item.DownloadedOverPlainHttp) return true;
+        if (Uri.TryCreate(item.Url, UriKind.Absolute, out var u) && u.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (!string.IsNullOrWhiteSpace(item.ResolvedUrl) && Uri.TryCreate(item.ResolvedUrl, UriKind.Absolute, out var ru) && ru.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return false;
+    }
+
+    public static bool NeedsPlainHttpExecutableWarning(DownloadItem item)
+        => !item.HttpExecWarningAccepted
+           && (IsExecutableOrScriptPath(item.FileName) || IsExecutableOrScriptPath(item.FullPath))
+           && WasDownloadedOverPlainHttp(item);
+
+    public static bool ConfirmPlainHttpExecutable(DownloadItem item, Window? owner = null)
+    {
+        if (!NeedsPlainHttpExecutableWarning(item))
+            return true;
+
+        var parent = owner ?? Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive && w.IsVisible) ?? App.Instance?.MainView;
+        bool open = Confirm.Ask(
+            parent,
+            Loc.T("main.open.httpExecWarnTitle"),
+            Loc.T("main.open.httpExecWarnBody", item.FileName),
+            Loc.T("main.complete.open"),
+            danger: true);
+        if (!open)
+            return false;
+
+        item.HttpExecWarningAccepted = true;
+        App.Instance?.Manager?.Save();
+        return true;
+    }
+
     public static void OpenFile(DownloadItem item)
     {
         if (!File.Exists(item.FullPath))
@@ -663,6 +775,8 @@ public partial class MainWindow
             else Confirm.Info(App.Instance.MainView, Loc.T("main.title"), Loc.T("main.open.missingFile"));
             return;
         }
+        if (!ConfirmPlainHttpExecutable(item))
+            return;
         try
         {
             Process.Start(new ProcessStartInfo(item.FullPath) { UseShellExecute = true });

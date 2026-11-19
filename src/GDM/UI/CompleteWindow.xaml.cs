@@ -22,7 +22,11 @@ public partial class CompleteWindow : Window
 
     void Open_Click(object sender, RoutedEventArgs e) => MainWindow.OpenFile(_item);
 
-    void OpenWith_Click(object sender, RoutedEventArgs e) => AfterDownload.OpenWith(_item.FullPath);
+    void OpenWith_Click(object sender, RoutedEventArgs e)
+    {
+        if (!MainWindow.ConfirmPlainHttpExecutable(_item, this)) return;
+        AfterDownload.OpenWith(_item.FullPath);
+    }
 
     void Folder_Click(object sender, RoutedEventArgs e) => MainWindow.OpenFolder(_item);
 

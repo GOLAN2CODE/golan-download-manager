@@ -30,12 +30,19 @@
         <Grid Margin="16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*" MinHeight="150"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
+            <!-- 16 MB page size cap banner -->
+            <Border x:Name="CapWarningBanner" Grid.Row="0" Background="{DynamicResource WarningSoft}" CornerRadius="8"
+                    Padding="12,8" Margin="0,0,0,10" Visibility="Collapsed">
+                <TextBlock Text="{core:T win.batch.page_cap_msg}" Foreground="{DynamicResource WarningInk}" TextWrapping="Wrap"/>
+            </Border>
+
             <!-- Paste mode header (visible when links empty) -->
-            <Border x:Name="PasteHeader" Grid.Row="0" Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="Collapsed">
+            <Border x:Name="PasteHeader" Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="Collapsed">
                 <StackPanel>
                     <TextBlock Text="{core:T win.batch.paste_label}" Style="{StaticResource Label}"/>
                     <TextBox x:Name="PasteBox" FlowDirection="LeftToRight" TextWrapping="Wrap" AcceptsReturn="True"
@@ -51,7 +58,7 @@
             </Border>
 
             <!-- Filter bar -->
-            <Border x:Name="FilterBar" Grid.Row="0" Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="Collapsed">
+            <Border x:Name="FilterBar" Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="Collapsed">
                 <StackPanel>
                     <DockPanel LastChildFill="True" Margin="0,0,0,8">
                         <TextBlock Text="{core:T win.batch.quick_filter}" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource Muted}"/>
@@ -67,7 +74,7 @@
             </Border>
 
             <!-- Links list -->
-            <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0">
+            <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0">
                 <DockPanel>
                     <StackPanel x:Name="SelectButtons" DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Left"
                                 Margin="8,8,8,4" Visibility="Collapsed">
@@ -88,6 +95,7 @@
                                     <DataTemplate>
                                         <CheckBox IsChecked="{Binding Selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  AutomationProperties.Name="{core:T win.batch.select_row_aria}"
                                                   Checked="RowCheckChanged" Unchecked="RowCheckChanged"/>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
@@ -145,7 +153,7 @@
             </Border>
 
             <!-- IDM save and filtering options -->
-            <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,12,0,0" Padding="16">
+            <Border Grid.Row="3" Style="{StaticResource Card}" Margin="0,12,0,0" Padding="16">
                 <StackPanel>
                     <TextBlock Text="{core:T win.batch.save_label}" Style="{StaticResource Label}"/>
                     <RadioButton x:Name="CategoryFolderRadio" Content="{core:T win.batch.save_by_cat}" IsChecked="True"/>

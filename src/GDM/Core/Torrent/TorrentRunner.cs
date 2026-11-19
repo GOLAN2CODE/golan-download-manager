@@ -108,15 +108,19 @@ public static class TorrentRunner
 
         try
         {
-            int itemMaxRate = TorrentService.ComputeMaxRateBytesPerSec(item.SpeedLimitKB);
+            int appliedDownRate = TorrentService.ComputeMaxRateBytesPerSec(item.SpeedLimitKB);
+            int appliedUpRate = settings.TorrentMaxUploadSpeedKB > 0
+                ? TorrentService.ComputeMaxRateBytesPerSec(settings.TorrentMaxUploadSpeedKB)
+                : 0;
+            int appliedMaxConn = Math.Clamp(settings.TorrentMaxConnections, 10, 500);
             var torrentSettings = new TorrentSettingsBuilder
             {
                 AllowDht = !loopbackOnly && settings.TorrentDhtEnabled,
                 AllowPeerExchange = !loopbackOnly && settings.TorrentPexEnabled,
                 CreateContainingDirectory = loadedTorrent is { Files.Count: > 1 },
-                MaximumConnections = Math.Clamp(settings.TorrentMaxConnections, 10, 500),
-                MaximumDownloadRate = itemMaxRate,
-                MaximumUploadRate = itemMaxRate
+                MaximumConnections = appliedMaxConn,
+                MaximumDownloadRate = appliedDownRate,
+                MaximumUploadRate = appliedUpRate
             }.ToSettings();
 
             item.Resumable = true;
@@ -241,6 +245,29 @@ public static class TorrentRunner
                     if (dataCompleted)
                         break;
                     ct.ThrowIfCancellationRequested();
+                }
+
+                int desiredDownRate = TorrentService.ComputeMaxRateBytesPerSec(item.SpeedLimitKB);
+                int desiredUpRate = settings.TorrentMaxUploadSpeedKB > 0
+                    ? TorrentService.ComputeMaxRateBytesPerSec(settings.TorrentMaxUploadSpeedKB)
+                    : 0;
+                int desiredMaxConn = Math.Clamp(settings.TorrentMaxConnections, 10, 500);
+                if (desiredDownRate != appliedDownRate || desiredUpRate != appliedUpRate || desiredMaxConn != appliedMaxConn)
+                {
+                    appliedDownRate = desiredDownRate;
+                    appliedUpRate = desiredUpRate;
+                    appliedMaxConn = desiredMaxConn;
+                    var updated = new TorrentSettingsBuilder(manager.Settings)
+                    {
+                        AllowDht = !loopbackOnly && settings.TorrentDhtEnabled,
+                        AllowPeerExchange = !loopbackOnly && settings.TorrentPexEnabled,
+                        MaximumConnections = desiredMaxConn,
+                        MaximumDownloadRate = desiredDownRate,
+                        MaximumUploadRate = desiredUpRate,
+                    }.ToSettings();
+                    await manager.UpdateSettingsAsync(updated);
+                    if (ownedEngine != null)
+                        await ownedEngine.UpdateSettingsAsync(TorrentService.BuildEngineSettings(settings, loopbackOnly: true, customCacheDir: ownedEngine.Settings.CacheDirectory));
                 }
 
                 var state = manager.State;

@@ -76,6 +76,8 @@ public sealed class QueueDef
     public string OpenWhenDone { get; set; } = "";
     public bool ExitWhenDone { get; set; }
     public bool ShutdownWhenDone { get; set; }
+    public bool SleepWhenDone { get; set; }
+    public bool HibernateWhenDone { get; set; }
     public bool ForceProcesses { get; set; }
 
     public DateTime? LastStart { get; set; }
@@ -412,6 +414,8 @@ public sealed partial class AppSettings
                 main.StopTime = string.IsNullOrWhiteSpace(ScheduleStop) ? "08:00" : ScheduleStop!;
             }
             main.ShutdownWhenDone = AfterQueue == "shutdown";
+            main.SleepWhenDone = AfterQueue == "sleep";
+            main.HibernateWhenDone = AfterQueue == "hibernate";
             main.ExitWhenDone = AfterQueue == "exit";
             Queues.Insert(0, main);
         }

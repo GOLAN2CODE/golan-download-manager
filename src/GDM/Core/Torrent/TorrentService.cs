@@ -441,8 +441,12 @@ public static class TorrentService
             ? [EncryptionType.RC4Full, EncryptionType.RC4Header, EncryptionType.PlainText]
             : [EncryptionType.PlainText, EncryptionType.RC4Header, EncryptionType.RC4Full];
 
-        int maxRate = settings.SpeedLimitEnabled
+        int maxDownloadRate = settings.SpeedLimitEnabled
             ? ComputeMaxRateBytesPerSec(settings.SpeedLimitKB)
+            : 0;
+
+        int maxUploadRate = settings.TorrentMaxUploadSpeedKB > 0
+            ? ComputeMaxRateBytesPerSec(settings.TorrentMaxUploadSpeedKB)
             : 0;
 
         var builder = new EngineSettingsBuilder
@@ -458,8 +462,8 @@ public static class TorrentService
             FastResumeMode = FastResumeMode.BestEffort,
             AllowedEncryption = encryption,
             MaximumConnections = Math.Clamp(settings.TorrentMaxConnections, 10, 1000),
-            MaximumDownloadRate = maxRate,
-            MaximumUploadRate = maxRate
+            MaximumDownloadRate = maxDownloadRate,
+            MaximumUploadRate = maxUploadRate
         };
 
         return builder.ToSettings();
@@ -492,6 +496,51 @@ public static class TorrentService
 
     public static void UnregisterActiveManager(Guid itemId) =>
         ActiveManagers.TryRemove(itemId, out _);
+
+    public static async Task ApplySettingsToRunningAsync(AppSettings settings)
+    {
+        try
+        {
+            await EngineLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (_sharedEngine != null)
+                    await _sharedEngine.UpdateSettingsAsync(BuildEngineSettings(settings)).ConfigureAwait(false);
+            }
+            finally
+            {
+                EngineLock.Release();
+            }
+
+            int maxUp = settings.TorrentMaxUploadSpeedKB > 0
+                ? ComputeMaxRateBytesPerSec(settings.TorrentMaxUploadSpeedKB)
+                : 0;
+            int maxConn = Math.Clamp(settings.TorrentMaxConnections, 10, 500);
+
+            foreach (var tm in ActiveManagers.Values.ToArray())
+            {
+                try
+                {
+                    var updated = new TorrentSettingsBuilder(tm.Settings)
+                    {
+                        AllowDht = settings.TorrentDhtEnabled,
+                        AllowPeerExchange = settings.TorrentPexEnabled,
+                        MaximumConnections = maxConn,
+                        MaximumUploadRate = maxUp,
+                    }.ToSettings();
+                    await tm.UpdateSettingsAsync(updated).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Log.Write("torrent live manager settings update failed: " + ex.Message);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Write("torrent live engine settings update failed: " + ex.Message);
+        }
+    }
 
     public static bool TryGetActiveManager(Guid itemId, out TorrentManager? manager) =>
         ActiveManagers.TryGetValue(itemId, out manager);

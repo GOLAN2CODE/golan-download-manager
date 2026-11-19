@@ -13,7 +13,7 @@ namespace Golan.Gdm;
 public partial class App : Application
 {
     public static App Instance => (App)Current;
-    public const string Version = "2.6.2";
+    public const string Version = "2.7.0";
 
     public bool StartHidden { get; init; }
     public string? StartUrl { get; init; }
@@ -30,6 +30,9 @@ public partial class App : Application
     PipeServer? _pipe;
     WinForms.NotifyIcon? _tray;
     DispatcherTimer? _schedulerTimer;
+    DispatcherTimer? _powerCountdownTimer;
+    PowerFinishAction? _pendingPowerAction;
+    int _powerCountdownRemaining;
     readonly Dictionary<Guid, ProgressWindow> _progressWindows = [];
     readonly Dictionary<string, int> _declinesByHost = new(StringComparer.OrdinalIgnoreCase);
     SchedulerWindow? _schedulerWindow;
@@ -37,6 +40,8 @@ public partial class App : Application
     DropTargetWindow? _dropTarget;
     Action<string, double>? _toolsProgressHandler;
     bool _exiting;
+
+    public TrayBalloonTracker BalloonTracker { get; private set; } = null!;
 
     public bool IsExiting => _exiting;
 
@@ -65,6 +70,15 @@ public partial class App : Application
         };
 
         Settings = AppSettings.Load();
+        SystemParameters.StaticPropertyChanged += (_, args) =>
+        {
+            if (string.IsNullOrEmpty(args.PropertyName)
+                || args.PropertyName == nameof(SystemParameters.HighContrast)
+                || SystemParameters.HighContrast)
+            {
+                RunOnUi(() => Theme.Apply(Settings.DarkMode));
+            }
+        };
         Manager = new DownloadManager(Settings);
         Scheduler = new QueueScheduler(Manager);
         PowerGuard = new PowerGuard
@@ -175,7 +189,7 @@ public partial class App : Application
                     StartHidden,
                     showWelcome: () =>
                     {
-                        var welcome = new WelcomeWindow();
+                        var welcome = new WelcomeWindow(Settings);
                         if (MainView is { IsVisible: true }) welcome.Owner = MainView;
                         welcome.ShowDialog();
                     },
@@ -201,7 +215,7 @@ public partial class App : Application
                         if (ExtensionAutoInstallWindow.AskFirstRunOffer(MainView, Settings, browsers))
                             ExtensionAutoInstallWindow.ShowAndStart(MainView);
                     },
-                    offerAppInstall: OfferInstallOnceIfNeeded,
+                    offerAppInstall: () => { },
                     isExiting: () => _exiting);
             }, DispatcherPriority.ApplicationIdle);
         }
@@ -263,13 +277,21 @@ public partial class App : Application
                 return Ok();
             case "download":
                 return await HandleBrowserDownloadAsync(msg);
+            case "downloadAllCapHit":
+                Notify(Loc.T("win.batch.page_cap_title"), Loc.T("win.batch.page_cap_msg"));
+                return Ok();
             case "downloadAll":
             {
+                bool capped = msg["capped"] is JsonValue cv && cv.TryGetValue<bool>(out var cb) && cb;
                 var links = (msg["links"] as JsonArray)?.OfType<JsonObject>()
                     .Select(l => new BatchLink(Str(l, "url"), Str(l, "text"), Str(l, "cookies")))
                     .Where(l => FileNames.IsDownloadableUrl(l.Url)).ToList() ?? [];
-                if (links.Count == 0) return Fail(Loc.T("main.ipc.noLinks"));
-                ShowBatch(links, Str(msg, "referrer"), Str(msg, "userAgent"));
+                if (links.Count == 0)
+                {
+                    if (capped) Notify(Loc.T("win.batch.page_cap_title"), Loc.T("win.batch.page_cap_msg"));
+                    return Fail(Loc.T("main.ipc.noLinks"));
+                }
+                ShowBatch(links, Str(msg, "referrer"), Str(msg, "userAgent"), capped);
                 return Ok();
             }
             case "media":
@@ -403,7 +425,9 @@ public partial class App : Application
         Manager.Save();
         Manager.Start(item);
         AddressRefreshed?.Invoke(item);
-        Notify(Loc.T("refresh.done.title"), Loc.T("refresh.done.body", item.FileName));
+        var refreshedItem = item;
+        Notify(Loc.T("refresh.done.title"), Loc.T("refresh.done.body", item.FileName),
+            onClick: () => ShowProgress(refreshedItem));
         return true;
     }
 
@@ -708,8 +732,16 @@ public partial class App : Application
     public void ShowVideo(string url, string referrer, string userAgent, JsonArray? cookies, IReadOnlyList<DetectedMedia> media, string title = "", bool drmDetected = false)
         => BringToFront(new VideoWindow(Manager, url, referrer, userAgent, cookies, media, title, drmDetected));
 
-    public void ShowBatch(IReadOnlyList<BatchLink> links, string referrer, string userAgent)
-        => BringToFront(new BatchWindow(Manager, links, referrer, userAgent));
+    public void ShowBatch(IReadOnlyList<BatchLink> links, string referrer, string userAgent, bool pageCapHit = false)
+    {
+        var w = new BatchWindow(Manager, links, referrer, userAgent);
+        if (pageCapHit)
+        {
+            w.ShowPageCapWarning();
+            Notify(Loc.T("win.batch.page_cap_title"), Loc.T("win.batch.page_cap_msg"), onClick: () => BringToFront(w));
+        }
+        BringToFront(w);
+    }
 
     public void ShowBatchPattern()
     {
@@ -822,21 +854,57 @@ public partial class App : Application
             ShowProgress(item);
     }
 
+    public void ActOnDownloadNotification(DownloadItem item, bool openCompleteWindow = false, bool openExtractedDir = false)
+    {
+        if (openExtractedDir && !string.IsNullOrWhiteSpace(item.ExtractedPath) && Directory.Exists(item.ExtractedPath))
+        {
+            try
+            {
+                if (AfterDownload.BuildOpenWhenDoneStartInfo(item.ExtractedPath) is { } psi)
+                {
+                    Process.Start(psi);
+                    return;
+                }
+            }
+            catch (Exception ex) { Log.Write("open extracted folder from balloon failed: " + ex.Message); }
+        }
+
+        if (openCompleteWindow && item.Status == DownloadStatus.Completed && File.Exists(item.FullPath))
+        {
+            BringToFront(new CompleteWindow(item));
+            return;
+        }
+
+        if (_progressWindows.TryGetValue(item.Id, out var pw))
+        {
+            BringToFront(pw);
+            return;
+        }
+
+        ShowMain();
+        MainView?.SelectDownloadItem(item);
+    }
+
     void OnItemCompleted(DownloadItem item)
     {
         AfterDownload.PlaySound(Settings, "complete");
         bool fromQueue = item.QueueId != null || item.RetryCount > 0;
         bool showDialog = item.OnDoneShowDialog ?? Settings.ShowCompleteDialog;
+        var target = item;
 
         if (item.HashState == HashVerifyState.Verified)
-            Notify(Loc.T($"hash.status.verified"), Loc.T($"hash.notify.verified", item.FileName));
+            Notify(Loc.T($"hash.status.verified"), Loc.T($"hash.notify.verified", item.FileName),
+                onClick: () => ActOnDownloadNotification(target, openCompleteWindow: true));
         else if (item.HashState == HashVerifyState.Mismatch)
-            Notify(Loc.T($"hash.status.mismatch"), Loc.T($"hash.notify.mismatch", item.FileName), error: true);
+            Notify(Loc.T($"hash.status.mismatch"), Loc.T($"hash.notify.mismatch", item.FileName), error: true,
+                onClick: () => ActOnDownloadNotification(target));
 
         if (item.ExtractState == ArchiveExtractState.Extracted)
-            Notify(Loc.T($"extract.status.done"), item.FileName);
+            Notify(Loc.T($"extract.status.done"), item.FileName,
+                onClick: () => ActOnDownloadNotification(target, openExtractedDir: true));
         else if (item.ExtractState == ArchiveExtractState.Failed && !string.IsNullOrWhiteSpace(item.LastResult))
-            Notify(Loc.T("main.notify.failed"), $"{item.FileName}\n{item.LastResult}", error: true);
+            Notify(Loc.T("main.notify.failed"), $"{item.FileName}\n{item.LastResult}", error: true,
+                onClick: () => ActOnDownloadNotification(target));
 
         if (_progressWindows.TryGetValue(item.Id, out var w)) w.OnCompleted();
         if (showDialog && !fromQueue)
@@ -846,7 +914,11 @@ public partial class App : Application
             if (w != null && !(item.Kind == DownloadKind.Torrent && item.IsSeeding)) w.Close();
             BringToFront(new CompleteWindow(item));
         }
-        else if (w == null) Notify(Loc.T("main.notify.completed"), item.FileName);
+        else if (w == null)
+        {
+            Notify(Loc.T("main.notify.completed"), item.FileName,
+                onClick: () => ActOnDownloadNotification(target, openCompleteWindow: true));
+        }
 
         if (item.OnDoneShutdown) ShutdownComputer(item.OnDoneForce);
         else if (item.OnDoneExit) ExitApp();
@@ -855,14 +927,19 @@ public partial class App : Application
     void OnItemFailed(DownloadItem item)
     {
         AfterDownload.PlaySound(Settings, "failed");
+        var target = item;
         // An expired link: offer IDM's "refresh download address" (clicking the notification starts it).
         if (item.LastFailKind is FailKind.Expired or FailKind.Challenge && AddressRefresh.CanRefresh(item))
         {
             Notify(Loc.T("refresh.expired.title"), Loc.T("refresh.expired.body", item.FileName), error: true,
-                   onClick: () => BeginAddressRefresh(item, MainView));
+                   onClick: () => BeginAddressRefresh(target, MainView));
             return;
         }
-        if (!_progressWindows.ContainsKey(item.Id)) Notify(Loc.T("main.notify.failed"), $"{item.FileName}\n{item.ErrorMessage}", error: true);
+        if (!_progressWindows.ContainsKey(item.Id))
+        {
+            Notify(Loc.T("main.notify.failed"), $"{item.FileName}\n{item.ErrorMessage}", error: true,
+                   onClick: () => ActOnDownloadNotification(target));
+        }
     }
 
     void OnQueueFinished(QueueDef q)
@@ -874,20 +951,121 @@ public partial class App : Application
             try { Process.Start(psi); }
             catch (Exception ex) { Log.Write("queue OpenWhenDone failed: " + ex.Message); }
         if (q.ShutdownWhenDone) ShutdownComputer(q.ForceProcesses);
+        else if (q.HibernateWhenDone) HibernateComputer();
+        else if (q.SleepWhenDone) SleepComputer();
         else if (q.ExitWhenDone) ExitApp();
     }
 
-    public void ShutdownComputer(bool force)
+    public enum PowerFinishAction { Shutdown, Sleep, Hibernate }
+
+    [System.Runtime.InteropServices.DllImport("powrprof.dll", SetLastError = true)]
+    static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
+
+    public void ShutdownComputer(bool force) => BeginPowerActionCountdown(PowerFinishAction.Shutdown, force);
+    public void SleepComputer() => BeginPowerActionCountdown(PowerFinishAction.Sleep, force: false);
+    public void HibernateComputer() => BeginPowerActionCountdown(PowerFinishAction.Hibernate, force: false);
+
+    void BeginPowerActionCountdown(PowerFinishAction action, bool force)
     {
-        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => ShutdownComputer(force)); return; }
-        try { Process.Start(new ProcessStartInfo("shutdown", force ? "/s /f /t 60" : "/s /t 60") { CreateNoWindow = true, UseShellExecute = false }); }
-        catch (Exception ex) { Log.Write("shutdown start failed: " + ex.Message); return; }
-        Notify(Loc.T("main.notify.shutdownTitle"), Loc.T("main.notify.shutdownBody"));
-        MainView?.ShowShutdownBanner();
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => BeginPowerActionCountdown(action, force)); return; }
+
+        CancelPowerActionInternal(hideBanner: false);
+
+        if (action == PowerFinishAction.Shutdown)
+        {
+            try { Process.Start(new ProcessStartInfo("shutdown", force ? "/s /f /t 60" : "/s /t 60") { CreateNoWindow = true, UseShellExecute = false }); }
+            catch (Exception ex) { Log.Write("shutdown start failed: " + ex.Message); return; }
+        }
+
+        _pendingPowerAction = action;
+        _powerCountdownRemaining = 60;
+        UpdatePowerBannerText();
+
+        var (notifyTitle, notifyBody) = action switch
+        {
+            PowerFinishAction.Sleep => (Loc.T("main.notify.sleepTitle"), Loc.T("main.notify.sleepBody")),
+            PowerFinishAction.Hibernate => (Loc.T("main.notify.hibernateTitle"), Loc.T("main.notify.hibernateBody")),
+            _ => (Loc.T("main.notify.shutdownTitle"), Loc.T("main.notify.shutdownBody")),
+        };
+        Notify(notifyTitle, notifyBody, onClick: ShowMain);
+
+        _powerCountdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _powerCountdownTimer.Tick += (_, _) => OnPowerCountdownTick();
+        _powerCountdownTimer.Start();
+    }
+
+    void UpdatePowerBannerText()
+    {
+        if (_pendingPowerAction is not { } action) return;
+        string msg = action switch
+        {
+            PowerFinishAction.Sleep => Loc.T("main.sleep.banner", _powerCountdownRemaining),
+            PowerFinishAction.Hibernate => Loc.T("main.hibernate.banner", _powerCountdownRemaining),
+            _ => Loc.T("main.shutdown.banner_countdown", _powerCountdownRemaining),
+        };
+        MainView?.ShowShutdownBanner(msg);
+    }
+
+    void OnPowerCountdownTick()
+    {
+        if (_pendingPowerAction is not { } action)
+        {
+            _powerCountdownTimer?.Stop();
+            return;
+        }
+
+        _powerCountdownRemaining--;
+        if (_powerCountdownRemaining > 0)
+        {
+            UpdatePowerBannerText();
+            return;
+        }
+
+        _powerCountdownTimer?.Stop();
+        _powerCountdownTimer = null;
+        _pendingPowerAction = null;
+        MainView?.HideShutdownBanner();
+
+        if (action is PowerFinishAction.Sleep or PowerFinishAction.Hibernate)
+        {
+            try
+            {
+                PowerGuard?.Update(false);
+                SetSuspendState(hibernate: action == PowerFinishAction.Hibernate, forceCritical: false, disableWakeEvent: false);
+            }
+            catch (Exception ex)
+            {
+                Log.Write($"{action} failed: " + ex.Message);
+            }
+        }
+    }
+
+    void CancelPowerActionInternal(bool hideBanner)
+    {
+        var wasAction = _pendingPowerAction;
+        _pendingPowerAction = null;
+        if (_powerCountdownTimer != null)
+        {
+            _powerCountdownTimer.Stop();
+            _powerCountdownTimer = null;
+        }
+        if (wasAction == PowerFinishAction.Shutdown || wasAction == null)
+        {
+            try { Process.Start(new ProcessStartInfo("shutdown", "/a") { CreateNoWindow = true, UseShellExecute = false }); }
+            catch (Exception ex) { Log.Write("cancel shutdown failed: " + ex.Message); }
+        }
+        if (hideBanner)
+            MainView?.HideShutdownBanner();
     }
 
     public static void CancelShutdown()
     {
+        if (Current is App app)
+        {
+            if (app.Dispatcher.CheckAccess()) app.CancelPowerActionInternal(hideBanner: true);
+            else app.Dispatcher.BeginInvoke(() => app.CancelPowerActionInternal(hideBanner: true));
+            return;
+        }
         try { Process.Start(new ProcessStartInfo("shutdown", "/a") { CreateNoWindow = true, UseShellExecute = false }); }
         catch (Exception ex) { Log.Write("cancel shutdown failed: " + ex.Message); }
     }
@@ -907,13 +1085,27 @@ public partial class App : Application
         var tip = Loc.T("main.tray.tooltip");
         if (tip.Length > 127) tip = tip[..127];
         _tray = new WinForms.NotifyIcon { Icon = icon, Text = tip, Visible = true };
+        BalloonTracker = new TrayBalloonTracker(
+            display: entry =>
+            {
+                if (_tray == null) return;
+                try
+                {
+                    _tray.BalloonTipTitle = string.IsNullOrWhiteSpace(entry.Title) ? Loc.T("main.brand.name") : entry.Title;
+                    _tray.BalloonTipText = string.IsNullOrWhiteSpace(entry.Text) ? " " : entry.Text;
+                    _tray.BalloonTipIcon = entry.Error ? WinForms.ToolTipIcon.Error : WinForms.ToolTipIcon.Info;
+                    _tray.ShowBalloonTip(4000);
+                }
+                catch (Exception ex)
+                {
+                    Log.Write("tray notify failed: " + ex.Message);
+                }
+            },
+            fallbackAction: ShowMain,
+            dispatcher: Dispatcher);
         _tray.DoubleClick += (_, _) => ShowMain();
-        _tray.BalloonTipClicked += (_, _) =>
-        {
-            var action = _balloonAction;
-            _balloonAction = null;
-            if (action != null) action(); else ShowMain();
-        };
+        _tray.BalloonTipClicked += (_, _) => BalloonTracker.OnBalloonClicked();
+        _tray.BalloonTipClosed += (_, _) => BalloonTracker.OnBalloonClosed();
         RefreshTrayMenu();
     }
 
@@ -963,24 +1155,11 @@ public partial class App : Application
         MainView?.RefreshToolbarState();
     }
 
-    Action? _balloonAction;
-
     public void Notify(string title, string text, bool error = false, Action? onClick = null)
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => Notify(title, text, error, onClick)); return; }
-        if (_tray == null) return;
-        try
-        {
-            _balloonAction = onClick;
-            _tray.BalloonTipTitle = string.IsNullOrWhiteSpace(title) ? Loc.T("main.brand.name") : title;
-            _tray.BalloonTipText = string.IsNullOrWhiteSpace(text) ? " " : text;
-            _tray.BalloonTipIcon = error ? WinForms.ToolTipIcon.Error : WinForms.ToolTipIcon.Info;
-            _tray.ShowBalloonTip(4000);
-        }
-        catch (Exception ex)
-        {
-            Log.Write("tray notify failed: " + ex.Message);
-        }
+        if (_tray == null || BalloonTracker == null) return;
+        BalloonTracker.Enqueue(title, text, error, onClick);
     }
 
     /// <summary>
@@ -1028,6 +1207,8 @@ public partial class App : Application
             _toolsProgressHandler = null;
         }
         _schedulerTimer?.Stop();
+        _powerCountdownTimer?.Stop();
+        BalloonTracker?.Dispose();
         SpeedRuleController?.Dispose();
         PowerGuard?.Dispose();
         _pipe?.Stop();
@@ -1042,3 +1223,113 @@ public sealed record DetectedMedia(string Url, string Mime, long Size);
 
 /// <summary>A link from "download all links": cookies are the ones the browser holds for that link's own site.</summary>
 public sealed record BatchLink(string Url, string Text, string Cookies = "");
+
+/// <summary>
+/// Keeps per-notification click actions for tray balloons so a newer notification never overwrites the action
+/// of the balloon currently displayed (or clicked by ID), falling back to opening the main window.
+/// </summary>
+public sealed class TrayBalloonTracker : IDisposable
+{
+    public sealed record BalloonEntry(long Id, string Title, string Text, bool Error, Action? OnClick);
+
+    const int MaxHistory = 128;
+    const int MaxPending = 32;
+    static readonly TimeSpan AutoAdvanceTimeout = TimeSpan.FromSeconds(6);
+
+    readonly Action<BalloonEntry> _display;
+    readonly Action _fallbackAction;
+    readonly DispatcherTimer? _expiryTimer;
+    readonly Queue<BalloonEntry> _pending = new();
+    readonly Dictionary<long, Action?> _actionsById = new();
+    readonly Queue<long> _idOrder = new();
+    BalloonEntry? _active;
+    long _nextId;
+
+    public TrayBalloonTracker(Action<BalloonEntry> display, Action fallbackAction, Dispatcher? dispatcher = null)
+    {
+        _display = display ?? throw new ArgumentNullException(nameof(display));
+        _fallbackAction = fallbackAction ?? throw new ArgumentNullException(nameof(fallbackAction));
+        if (dispatcher != null)
+        {
+            _expiryTimer = new DispatcherTimer(AutoAdvanceTimeout, DispatcherPriority.Background, (_, _) => OnBalloonClosed(), dispatcher);
+            _expiryTimer.Stop();
+        }
+    }
+
+    public BalloonEntry? ActiveEntry => _active;
+    public int PendingCount => _pending.Count;
+
+    public long Enqueue(string title, string text, bool error = false, Action? onClick = null)
+    {
+        long id = ++_nextId;
+        _actionsById[id] = onClick;
+        _idOrder.Enqueue(id);
+        while (_idOrder.Count > MaxHistory)
+            _actionsById.Remove(_idOrder.Dequeue());
+
+        var entry = new BalloonEntry(id, title, text, error, onClick);
+        if (_active == null)
+        {
+            ShowEntry(entry);
+        }
+        else
+        {
+            while (_pending.Count >= MaxPending)
+                _pending.Dequeue();
+            _pending.Enqueue(entry);
+        }
+        return id;
+    }
+
+    public void OnBalloonClicked()
+    {
+        var current = _active;
+        _active = null;
+        _expiryTimer?.Stop();
+        AdvanceNext();
+        var action = current?.OnClick;
+        if (action != null) action();
+        else _fallbackAction();
+    }
+
+    public void InvokeClickById(long notificationId)
+    {
+        if (_active?.Id == notificationId)
+        {
+            OnBalloonClicked();
+            return;
+        }
+        if (_actionsById.TryGetValue(notificationId, out var action) && action != null)
+            action();
+        else
+            _fallbackAction();
+    }
+
+    public void OnBalloonClosed()
+    {
+        _active = null;
+        _expiryTimer?.Stop();
+        AdvanceNext();
+    }
+
+    void AdvanceNext()
+    {
+        if (_active == null && _pending.TryDequeue(out var next))
+            ShowEntry(next);
+    }
+
+    void ShowEntry(BalloonEntry entry)
+    {
+        _active = entry;
+        _expiryTimer?.Stop();
+        _display(entry);
+        _expiryTimer?.Start();
+    }
+
+    public void Dispose()
+    {
+        _expiryTimer?.Stop();
+        _pending.Clear();
+        _active = null;
+    }
+}

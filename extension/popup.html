@@ -19,10 +19,21 @@
     </div>
   </header>
 
+  <div class="state-banner ok-banner" id="connectedBanner" role="status" hidden>
+    <span class="state-msg" id="connectedMsg" data-i18n="popupConnectedState">Ready to capture downloads</span>
+    <button class="banner-btn" id="openOptionsBtn" type="button" data-i18n="btnOptions">Options</button>
+  </div>
+
   <div class="banner" id="banner" role="alert" hidden>
-    <strong class="banner-title" data-i18n="popupOfflineBanner">Golan is not running — open Golan Download Manager and click Retry.</strong>
-    <p class="banner-help" data-i18n="popupOfflineHelp">Start Golan from the Start Menu or Desktop. If it is already open, enable Browser Integration in Options.</p>
+    <strong class="banner-title" id="bannerTitle" data-i18n="popupOfflineBanner">Golan is not running — open Golan Download Manager and click Retry.</strong>
+    <p class="banner-help" id="bannerHelp" data-i18n="popupOfflineHelp">Start Golan from the Start Menu or Desktop. If it is already open, enable Browser Integration in Options.</p>
     <button class="banner-btn" id="retryBtn" type="button" data-i18n="btnRetry">Retry</button>
+  </div>
+
+  <div class="banner warn-banner" id="outdatedBanner" role="alert" hidden>
+    <strong class="banner-title" id="outdatedTitle" data-i18n="popupOutdatedBanner">Golan desktop app is outdated.</strong>
+    <p class="banner-help" id="outdatedHelp" data-i18n="popupOutdatedHelp">Update Golan Download Manager and click Check again.</p>
+    <button class="banner-btn" id="checkUpdateBtn" type="button" data-i18n="btnCheckAgain">Check again</button>
   </div>
 
   <section class="card">

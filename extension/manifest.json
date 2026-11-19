@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "default_locale": "en",
   "name": "__MSG_extName__",
-  "version": "2.6.2",
+  "version": "2.7.0",
   "description": "__MSG_extDescription__",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw54lXt1Mmc/beyJoWYMwK/jf0MSMeg7SCYQDO6xmC2blyXOJAXuvj8cP1/f7Dg/1eJPh5DLm9+1zEZcE63aCKzyoIRKJzJoVe/5qkMVPtdMQLbCE7Oy5J63934G8KYS9/0n7mwvDNy5aiFkJmH5bal0844/P23fcGT/YSGPO/SYCIKo2bTTvbnSDl7bo0VmxuUj9E5SBO1/uE3CZyhue6wOqOy27h6NIIdAAS74rKB0vAgnh1U22YjnHrNkWDIWLgowy0y2/yi9jUUKv8UBk/ADwFtKOdxu06HsQQTUwzdqpBwX1C1Ue04jvI3kjJOnvKklyKC9rJ1UnIYqQM88NtQIDAQAB",
   "browser_specific_settings": {
@@ -45,6 +45,26 @@
       "32": "icons/icon32.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "commands": {
+    "toggle-capture": {
+      "suggested_key": {
+        "default": "Alt+Shift+G",
+        "mac": "Alt+Shift+G"
+      },
+      "description": "__MSG_cmdToggleCapture__"
+    },
+    "send-to-golan": {
+      "suggested_key": {
+        "default": "Alt+Shift+D",
+        "mac": "Alt+Shift+D"
+      },
+      "description": "__MSG_cmdSendToGolan__"
     }
   },
   "icons": {

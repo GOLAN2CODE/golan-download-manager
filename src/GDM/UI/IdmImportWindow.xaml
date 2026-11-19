@@ -62,6 +62,7 @@
                                         <CheckBox IsChecked="{Binding Selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                   IsEnabled="{Binding Selectable}"
                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  AutomationProperties.Name="{core:TExtension idm.col.select}"
                                                   Checked="RowSelection_Changed" Unchecked="RowSelection_Changed"/>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>

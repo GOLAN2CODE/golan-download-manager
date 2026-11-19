@@ -339,6 +339,13 @@ public partial class GrabberWindow : Window
         ResultsEmptyText.Visibility = Visibility.Visible;
         var grabber = new SiteGrabber(_project);
         _grabber = grabber;
+        bool notifiedPageCap = false;
+        grabber.PageCapHit += _ => Dispatcher.BeginInvoke(() =>
+        {
+            if (!ReferenceEquals(_grabber, grabber) || notifiedPageCap) return;
+            notifiedPageCap = true;
+            App.Instance?.Notify(Loc.T("win.batch.page_cap_title"), Loc.T("win.batch.page_cap_msg"));
+        });
         grabber.FileFound += file => Dispatcher.BeginInvoke(() =>
         {
             if (ReferenceEquals(_grabber, grabber))

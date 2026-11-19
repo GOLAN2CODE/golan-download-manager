@@ -163,5 +163,98 @@
   },
   "errDrmProtected": {
     "message": "هذا الفيديو محمي بإدارة الحقوق الرقمية (DRM) ولا يمكن تنزيله."
+  },
+  "cmdToggleCapture": {
+    "message": "تفعيل أو إيقاف التقاط التنزيلات"
+  },
+  "cmdSendToGolan": {
+    "message": "إرسال رابط أو فيديو الصفحة الحالية إلى جولان"
+  },
+  "badgeOn": {
+    "message": "مفعّل"
+  },
+  "badgeOff": {
+    "message": "إيقاف"
+  },
+  "badgeOffline": {
+    "message": "!"
+  },
+  "badgeOutdated": {
+    "message": "تحديث"
+  },
+  "statusOutdated": {
+    "message": "إصدار جولان قديم"
+  },
+  "popupConnectedState": {
+    "message": "جاهز لالتقاط التنزيلات"
+  },
+  "btnOptions": {
+    "message": "الإعدادات"
+  },
+  "popupOutdatedBanner": {
+    "message": "إصدار برنامج جولان قديم."
+  },
+  "popupOutdatedVersionBanner": {
+    "message": "إصدار جولان ($1) أقدم من هذه الإضافة."
+  },
+  "popupOutdatedHelp": {
+    "message": "حدّث برنامج جولان إلى أحدث إصدار ثم اضغط «إعادة التحقق»."
+  },
+  "btnCheckAgain": {
+    "message": "إعادة التحقق"
+  },
+  "toastStillOutdated": {
+    "message": "لا يزال برنامج جولان بحاجة إلى تحديث"
+  },
+  "optionsTitle": {
+    "message": "إعدادات إضافة جولان"
+  },
+  "optVideoSniffingTitle": {
+    "message": "اكتشاف الفيديو في الصفحات"
+  },
+  "optVideoSniffingDesc": {
+    "message": "رصد تدفقات الفيديو وإظهار زر التنزيل فوق الفيديو"
+  },
+  "optMinSizeLabel": {
+    "message": "الحد الأدنى لحجم الملف (ك.ب)"
+  },
+  "optMinSizeHint": {
+    "message": "التقاط الملفات التي يبلغ حجمها هذه القيمة أو يتجاوزها (0 لإلغاء حد الحجم)"
+  },
+  "optExtensionsLabel": {
+    "message": "أنواع الملفات الملتقطة"
+  },
+  "optExtensionsHint": {
+    "message": "امتدادات الملفات مفصولة بمسافات أو فواصل"
+  },
+  "optSaveBtn": {
+    "message": "حفظ التغييرات"
+  },
+  "optResetExtBtn": {
+    "message": "استعادة الأنواع الافتراضية"
+  },
+  "optExcludedSitesTitle": {
+    "message": "المواقع المستثناة"
+  },
+  "optExcludedSitesHint": {
+    "message": "عدم التقاط التنزيلات أو فحص الصفحات في هذه النطاقات (مثل example.com أو *.example.com)"
+  },
+  "optSitePlaceholder": {
+    "message": "example.com"
+  },
+  "optAddSiteBtn": {
+    "message": "إضافة"
+  },
+  "optRemoveSiteBtn": {
+    "message": "إزالة"
+  },
+  "optSitesEmpty": {
+    "message": "لا توجد مواقع مستثناة."
+  },
+  "optToastSaved": {
+    "message": "تم حفظ الإعدادات ✓"
+  },
+  "optErrInvalidSite": {
+    "message": "أدخل اسم نطاق صالحاً"
   }
 }

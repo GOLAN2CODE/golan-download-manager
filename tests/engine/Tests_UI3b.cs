@@ -301,7 +301,7 @@ public static class Tests_UI3b
 
             // 11. App.xaml.cs review fixes: background install-offer guard, idempotent ExitApp + PrepareForExit, safe modal owner, ShutdownComputer notify order
             int shutdownStartIdx = appCs.IndexOf("new ProcessStartInfo(\"shutdown\"", StringComparison.Ordinal);
-            int shutdownNotifyIdx = appCs.IndexOf("Notify(Loc.T(\"main.notify.shutdownTitle\")", StringComparison.Ordinal);
+            int shutdownNotifyIdx = appCs.IndexOf("Notify(notifyTitle, notifyBody", StringComparison.Ordinal);
             Check("UI3b_App_BackgroundInstallExitAndModalOwner",
                 appCs.Contains("if (!StartHidden)") &&
                 appCs.Contains("Dispatcher.BeginInvoke(OfferInstallOnceIfNeeded, DispatcherPriority.ApplicationIdle)") &&

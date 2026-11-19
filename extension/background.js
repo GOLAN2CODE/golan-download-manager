@@ -12,7 +12,13 @@ const MAX_TRACKED_ENTRIES = 200;
 const MAX_STORED_URL_LEN = 4096;
 const MAX_FILENAME_LEN = 255;
 const POST_FLUSH_MS = 1000;
+const POST_TTL_MS = 120 * 1000;
+const AUTH_TTL_MS = 120 * 1000;
+const MAX_POST_MAP_BYTES = 64 * 1024;
 const BADGE_COLOR = "#16a34a";
+const BADGE_OFF_COLOR = "#6b7280";
+const BADGE_WARN_COLOR = "#dc2626";
+const BADGE_OUTDATED_COLOR = "#d97706";
 
 const FALLBACK_MESSAGES = {
   appShortName: "Golan",
@@ -28,7 +34,13 @@ const FALLBACK_MESSAGES = {
   menuDownloadAll: "Download all links with Golan",
   menuDownloadVideo: "Download video from this page with Golan",
   menuDownloadImage: "Download image with Golan",
-  errDrmProtected: "Protected videos (DRM) cannot be downloaded."
+  errDrmProtected: "Protected videos (DRM) cannot be downloaded.",
+  toastInterceptOn: "Download capture enabled",
+  toastInterceptOff: "Download capture disabled",
+  badgeOn: "ON",
+  badgeOff: "OFF",
+  badgeOffline: "!",
+  badgeOutdated: "UPD"
 };
 
 function i18nMsg(key, substitutions) {
@@ -468,23 +480,33 @@ async function sendToGdm(message, { silent = false } = {}) {
 let gdmState = null; // {connected, version, settings, ts}
 let refreshPromise = null;
 
-function normalizeSettings(s) {
-  const out = { ...DEFAULT_SETTINGS };
+function normalizeSettings(s, base = null) {
+  const seed = base && typeof base === "object" ? { ...DEFAULT_SETTINGS, ...base } : { ...DEFAULT_SETTINGS };
+  const out = {
+    ...seed,
+    extensions: Array.isArray(seed.extensions) ? seed.extensions.slice() : DEFAULT_SETTINGS.extensions.slice(),
+    exceptionSites: Array.isArray(seed.exceptionSites) ? seed.exceptionSites.slice() : [],
+    exceptionAddresses: Array.isArray(seed.exceptionAddresses) ? seed.exceptionAddresses.slice() : [],
+    mediaPanelExceptions: Array.isArray(seed.mediaPanelExceptions) ? seed.mediaPanelExceptions.slice() : [],
+    menuItems: Array.isArray(seed.menuItems) ? seed.menuItems.slice() : DEFAULT_SETTINGS.menuItems.slice()
+  };
   if (s && typeof s === "object") {
     if (typeof s.intercept === "boolean") out.intercept = s.intercept;
     if (Array.isArray(s.extensions)) {
       out.extensions = s.extensions
         .filter((x) => typeof x === "string")
-        .map((x) => x.trim().toLowerCase().replace(/^\./, ""))
+        .map((x) => x.trim().toLowerCase().replace(/^\.+/, ""))
         .filter(Boolean);
     }
-    if (typeof s.minSizeKB === "number" && isFinite(s.minSizeKB)) out.minSizeKB = s.minSizeKB;
+    if (typeof s.minSizeKB === "number" && isFinite(s.minSizeKB) && s.minSizeKB >= 0) out.minSizeKB = s.minSizeKB;
     const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()) : []);
-    out.exceptionSites = strList(s.exceptionSites);
-    out.exceptionAddresses = strList(s.exceptionAddresses);
+    if (Array.isArray(s.exceptionSites)) out.exceptionSites = strList(s.exceptionSites);
+    if (Array.isArray(s.exceptionAddresses)) out.exceptionAddresses = strList(s.exceptionAddresses);
     if (typeof s.mediaPanel === "boolean") out.mediaPanel = s.mediaPanel;
-    if (typeof s.mediaPanelMinSizeKB === "number" && isFinite(s.mediaPanelMinSizeKB)) out.mediaPanelMinSizeKB = s.mediaPanelMinSizeKB;
-    out.mediaPanelExceptions = strList(s.mediaPanelExceptions);
+    if (typeof s.mediaPanelMinSizeKB === "number" && isFinite(s.mediaPanelMinSizeKB) && s.mediaPanelMinSizeKB >= 0) {
+      out.mediaPanelMinSizeKB = s.mediaPanelMinSizeKB;
+    }
+    if (Array.isArray(s.mediaPanelExceptions)) out.mediaPanelExceptions = strList(s.mediaPanelExceptions);
     if (Array.isArray(s.menuItems)) out.menuItems = strList(s.menuItems);
   }
   return out;
@@ -509,6 +531,25 @@ function isNewerVersion(candidate, current) {
     if (x !== y) return x > y;
   }
   return false;
+}
+
+function getExtensionVersion() {
+  try {
+    if (api.runtime && typeof api.runtime.getManifest === "function") {
+      const m = api.runtime.getManifest();
+      return (m && typeof m.version === "string" && m.version) || "";
+    }
+  } catch (e) {
+    // ignore
+  }
+  return "";
+}
+
+function isGolanOutdated(state) {
+  if (!state || !state.connected || !state.version) return false;
+  const extVer = getExtensionVersion();
+  if (!extVer) return false;
+  return isNewerVersion(extVer, state.version);
 }
 
 // After Golan updates itself, the folder this extension was loaded from holds the new version, but the browser
@@ -538,7 +579,7 @@ async function refreshSettings() {
       state = {
         connected: true,
         version: String(res.reply.version || ""),
-        settings: normalizeSettings(res.reply.settings),
+        settings: normalizeSettings(res.reply.settings, prev && prev.settings),
         ts: Date.now()
       };
     } else {
@@ -555,6 +596,7 @@ async function refreshSettings() {
     gdmState = state;
     if (changed) await storageSet("local", { gdmState: state });
     if (state.settings && JSON.stringify(state.settings.menuItems || []) !== oldMenus) createMenus();
+    syncStateBadge();
     if (state.connected) reloadIfGolanIsNewer(state.version);
     return state;
   })();
@@ -581,6 +623,7 @@ function markDisconnected() {
     : { connected: false, version: "", settings: null, ts: Date.now() };
   gdmState = next;
   if (!sameGdmState(prev, next)) storageSet("local", { gdmState: next });
+  syncStateBadge();
 }
 
 let interceptEnabledCache = null; // null = not read yet
@@ -594,15 +637,25 @@ async function isInterceptEnabled() {
 // Keep the switch and the last known settings in memory, so a new download can be judged instantly.
 if (api.storage && api.storage.onChanged && typeof api.storage.onChanged.addListener === "function") {
   api.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes && changes.interceptEnabled) {
-      interceptEnabledCache = changes.interceptEnabled.newValue !== false;
+    if (area === "local" && changes) {
+      if (changes.interceptEnabled) {
+        interceptEnabledCache = changes.interceptEnabled.newValue !== false;
+        syncStateBadge();
+      }
+      if (changes.gdmState) {
+        const nv = changes.gdmState.newValue;
+        gdmState = nv ? { ...nv, settings: nv.settings ? normalizeSettings(nv.settings) : null } : null;
+        syncStateBadge();
+      }
     }
   });
 }
-isInterceptEnabled();
-(async () => {
-  if (!gdmState) gdmState = (await storageGet("local", "gdmState")).gdmState || null;
-})();
+Promise.all([
+  isInterceptEnabled(),
+  (async () => {
+    if (!gdmState) gdmState = (await storageGet("local", "gdmState")).gdmState || null;
+  })()
+]).then(() => syncStateBadge());
 
 // Periodic refresh while the worker is alive (plus lazy refresh in getGdmState).
 setInterval(() => { refreshSettings(); }, SETTINGS_TTL_MS);
@@ -654,12 +707,108 @@ function isMediaPanelException(url, settings) {
 }
 
 // Requests sent with POST (forms): GDM would re-fetch them with GET and get a different answer, so they stay in the browser.
-const postUrls = new Map(); // url -> expiry
-const postRequestIds = new Map(); // requestId -> expiry
+const MAX_INFLIGHT_PIN_MS = 2 * 60 * 60 * 1000;
+const inFlightDownloads = new Map(); // downloadId -> { urls: Set<string>, ts: number }
+const postUrls = new Map(); // url -> { exp, bytes }
+const postRequestIds = new Map(); // requestId -> { exp, url }
+// Requests that carried an Authorization header stay in the browser (never stored on disk or session; secret value never retained).
+const authUrls = new Map(); // url -> exp
+const authRequestIds = new Map(); // requestId -> { exp, url }
 let lastPostFlushAt = 0;
 let postFlushTimer = null;
 let postFlushInFlight = false;
 let postFlushDirty = false;
+
+function trackDownloadInFlight(item) {
+  if (!item || typeof item.id !== "number") return;
+  if (item.state && item.state !== "in_progress" && item.state !== "paused") {
+    inFlightDownloads.delete(item.id);
+    return;
+  }
+  const now = Date.now();
+  for (const [id, entry] of inFlightDownloads) {
+    if (!entry || now - entry.ts > MAX_INFLIGHT_PIN_MS) inFlightDownloads.delete(id);
+  }
+  let entry = inFlightDownloads.get(item.id);
+  if (!entry) {
+    entry = { urls: new Set(), ts: now };
+    inFlightDownloads.set(item.id, entry);
+  } else {
+    entry.ts = now;
+  }
+  if (typeof item.url === "string" && item.url) entry.urls.add(item.url);
+  if (typeof item.finalUrl === "string" && item.finalUrl) entry.urls.add(item.finalUrl);
+}
+
+function untrackDownloadInFlight(id) {
+  inFlightDownloads.delete(id);
+}
+
+function isUrlPinnedByInFlightDownload(url) {
+  if (!url) return false;
+  for (const h of held.values()) {
+    if (h && h.state === "deciding" && (h.url === url || h.finalUrl === url)) return true;
+  }
+  const now = Date.now();
+  for (const [id, entry] of inFlightDownloads) {
+    if (!entry || now - entry.ts > MAX_INFLIGHT_PIN_MS) {
+      inFlightDownloads.delete(id);
+      continue;
+    }
+    if (entry.urls.has(url)) return true;
+  }
+  return false;
+}
+
+function estimateRequestBodyBytes(requestBody) {
+  if (!requestBody || typeof requestBody !== "object") return 0;
+  let total = 0;
+  if (Array.isArray(requestBody.raw)) {
+    for (const part of requestBody.raw) {
+      if (part && part.bytes && typeof part.bytes.byteLength === "number") {
+        total += part.bytes.byteLength;
+      } else if (part && typeof part.file === "string") {
+        total += part.file.length * 2;
+      }
+    }
+  }
+  if (requestBody.formData && typeof requestBody.formData === "object") {
+    for (const [k, vals] of Object.entries(requestBody.formData)) {
+      total += k.length * 2;
+      if (Array.isArray(vals)) {
+        for (const v of vals) {
+          total += typeof v === "string" ? v.length * 2 : v && typeof v.byteLength === "number" ? v.byteLength : 64;
+        }
+      }
+    }
+  }
+  return total;
+}
+
+function postEntryBytes(url, bodyBytes = 0) {
+  const base = String(url || "").length * 2 + 16;
+  const maxSingleCharge = Math.floor(MAX_POST_MAP_BYTES / 2);
+  const cappedBody = Math.min(Math.max(0, Number(bodyBytes) || 0), maxSingleCharge);
+  return Math.min(base + cappedBody, maxSingleCharge);
+}
+
+function evictPostMap(map, now = Date.now()) {
+  for (const [u, entry] of map) {
+    if (!entry || (entry.exp <= now && !isUrlPinnedByInFlightDownload(u))) {
+      map.delete(u);
+    }
+  }
+  let totalBytes = 0;
+  for (const entry of map.values()) totalBytes += entry.bytes || 0;
+  if (map.size > MAX_TRACKED_ENTRIES || totalBytes > MAX_POST_MAP_BYTES) {
+    for (const [u, entry] of map) {
+      if (map.size <= MAX_TRACKED_ENTRIES && totalBytes <= MAX_POST_MAP_BYTES) break;
+      if (isUrlPinnedByInFlightDownload(u)) continue;
+      totalBytes -= entry.bytes || 0;
+      map.delete(u);
+    }
+  }
+}
 
 async function flushPostUrls() {
   if (postFlushInFlight) {
@@ -674,21 +823,24 @@ async function flushPostUrls() {
     postFlushDirty = false;
     const merged = new Map();
     for (const [u, e] of Object.entries(stored || {})) {
-      if (e > now) merged.set(u, e);
+      if (typeof e === "number" && (e > now || isUrlPinnedByInFlightDownload(u))) {
+        const mem = postUrls.get(u);
+        merged.set(u, { exp: e, bytes: mem ? mem.bytes : postEntryBytes(u, 0) });
+      }
     }
-    for (const [u, e] of postUrls) {
-      if (e > now) {
+    for (const [u, entry] of postUrls) {
+      if (entry && (entry.exp > now || isUrlPinnedByInFlightDownload(u))) {
         merged.delete(u);
-        merged.set(u, e);
+        merged.set(u, entry);
       } else {
         postUrls.delete(u);
       }
     }
-    while (merged.size > MAX_TRACKED_ENTRIES) {
-      merged.delete(merged.keys().next().value);
-    }
+    evictPostMap(merged, now);
+    const serialized = {};
+    for (const [u, entry] of merged) serialized[u] = entry.exp;
     lastPostFlushAt = Date.now();
-    await storageSet("session", { postUrls: Object.fromEntries(merged) });
+    await storageSet("session", { postUrls: serialized });
   } finally {
     postFlushInFlight = false;
     if (postFlushDirty) schedulePostUrlsFlush();
@@ -713,40 +865,116 @@ function schedulePostUrlsFlush() {
   }, POST_FLUSH_MS - elapsed);
 }
 
-async function recordPostUrl(url, exp = Date.now() + 120000) {
+async function recordPostUrl(url, exp = Date.now() + POST_TTL_MS, bodyBytes = 0) {
   if (!url || typeof url !== "string") return;
   const now = Date.now();
-  for (const [u, e] of postUrls) if (e <= now) postUrls.delete(u);
+  const prev = postUrls.get(url);
+  const bytes = Math.max(postEntryBytes(url, bodyBytes), prev && bodyBytes === 0 ? prev.bytes : 0);
   postUrls.delete(url);
-  postUrls.set(url, exp);
-  while (postUrls.size > MAX_TRACKED_ENTRIES) {
-    postUrls.delete(postUrls.keys().next().value);
-  }
+  postUrls.set(url, { exp, bytes });
+  evictPostMap(postUrls, now);
   await schedulePostUrlsFlush();
 }
 
 if (api.webRequest && api.webRequest.onBeforeRequest) {
-  api.webRequest.onBeforeRequest.addListener(
-    (details) => {
-      if (details.method === "POST") {
-        const now = Date.now();
-        const exp = now + 120000;
-        if (details.requestId) {
-          for (const [rid, e] of postRequestIds) if (e <= now) postRequestIds.delete(rid);
-          postRequestIds.delete(details.requestId);
-          postRequestIds.set(details.requestId, exp);
-          while (postRequestIds.size > MAX_TRACKED_ENTRIES) postRequestIds.delete(postRequestIds.keys().next().value);
+  const onBeforeReq = (details) => {
+    if (details && details.method === "POST") {
+      const now = Date.now();
+      const exp = now + POST_TTL_MS;
+      const bodyBytes = estimateRequestBodyBytes(details.requestBody);
+      if (details.requestId) {
+        for (const [rid, entry] of postRequestIds) {
+          if (!entry || (entry.exp <= now && !isUrlPinnedByInFlightDownload(entry.url))) {
+            postRequestIds.delete(rid);
+          }
         }
-        recordPostUrl(details.url, exp);
+        postRequestIds.delete(details.requestId);
+        postRequestIds.set(details.requestId, { exp, url: details.url || "" });
+        if (postRequestIds.size > MAX_TRACKED_ENTRIES) {
+          for (const [rid, entry] of postRequestIds) {
+            if (postRequestIds.size <= MAX_TRACKED_ENTRIES) break;
+            if (entry && isUrlPinnedByInFlightDownload(entry.url)) continue;
+            postRequestIds.delete(rid);
+          }
+        }
       }
-    },
-    { urls: ["http://*/*", "https://*/*"], types: ["main_frame", "sub_frame", "other", "xmlhttprequest"] }
+      recordPostUrl(details.url, exp, bodyBytes);
+    }
+  };
+  const postFilter = { urls: ["http://*/*", "https://*/*"], types: ["main_frame", "sub_frame", "other", "xmlhttprequest"] };
+  // The body itself is never asked for: form contents stay out of the extension, and the browser copies nothing extra.
+  api.webRequest.onBeforeRequest.addListener(onBeforeReq, postFilter);
+}
+
+function hasAuthorizationHeader(headers) {
+  if (!Array.isArray(headers)) return false;
+  return headers.some(
+    (h) => h && typeof h.name === "string" && h.name.toLowerCase() === "authorization" && Boolean(h.value && String(h.value).trim())
   );
 }
 
-function isPost(...urls) {
+function evictAuthMap(now = Date.now()) {
+  for (const [u, exp] of authUrls) {
+    if (exp <= now && !isUrlPinnedByInFlightDownload(u)) authUrls.delete(u);
+  }
+  if (authUrls.size > MAX_TRACKED_ENTRIES) {
+    for (const [u] of authUrls) {
+      if (authUrls.size <= MAX_TRACKED_ENTRIES) break;
+      if (isUrlPinnedByInFlightDownload(u)) continue;
+      authUrls.delete(u);
+    }
+  }
+}
+
+function recordAuthUrl(url, exp = Date.now() + AUTH_TTL_MS) {
+  if (!url || !isHttpUrl(url)) return;
+  authUrls.delete(url);
+  authUrls.set(url, exp);
+  evictAuthMap(Date.now());
+}
+
+function recordAuthRequest(details) {
+  if (!details || details.incognito || !hasAuthorizationHeader(details.requestHeaders)) return;
   const now = Date.now();
-  for (const [u, exp] of postUrls) if (exp <= now) postUrls.delete(u);
+  const exp = now + AUTH_TTL_MS;
+  if (details.requestId) {
+    for (const [rid, entry] of authRequestIds) {
+      if (!entry || (entry.exp <= now && !isUrlPinnedByInFlightDownload(entry.url))) {
+        authRequestIds.delete(rid);
+      }
+    }
+    authRequestIds.delete(details.requestId);
+    authRequestIds.set(details.requestId, { exp, url: details.url || "" });
+    if (authRequestIds.size > MAX_TRACKED_ENTRIES) {
+      for (const [rid, entry] of authRequestIds) {
+        if (authRequestIds.size <= MAX_TRACKED_ENTRIES) break;
+        if (entry && isUrlPinnedByInFlightDownload(entry.url)) continue;
+        authRequestIds.delete(rid);
+      }
+    }
+  }
+  if (typeof details.url === "string") recordAuthUrl(details.url, exp);
+}
+
+for (const evName of ["onSendHeaders", "onBeforeSendHeaders"]) {
+  const ev = api.webRequest && api.webRequest[evName];
+  if (ev && typeof ev.addListener === "function") {
+    const authFilter = { urls: ["http://*/*", "https://*/*"], types: ["main_frame", "sub_frame", "other", "xmlhttprequest"] };
+    try {
+      ev.addListener(recordAuthRequest, authFilter, ["requestHeaders", "extraHeaders"]);
+    } catch (e) {
+      ev.addListener(recordAuthRequest, authFilter, ["requestHeaders"]);
+    }
+  }
+}
+
+function hasAuthUrl(...urls) {
+  evictAuthMap(Date.now());
+  return urls.some((u) => u && authUrls.has(u));
+}
+
+function isPost(...urls) {
+  evictPostMap(postUrls, Date.now());
   return urls.some((u) => u && postUrls.has(u));
 }
 
@@ -756,10 +984,10 @@ async function isPostAsync(...urls) {
   const { postUrls: stored } = await storageGet("session", "postUrls");
   if (!stored) return false;
   for (const u of urls) {
-    if (u && stored[u] && stored[u] > now) {
+    if (u && typeof stored[u] === "number" && (stored[u] > now || isUrlPinnedByInFlightDownload(u))) {
       postUrls.delete(u);
-      postUrls.set(u, stored[u]);
-      while (postUrls.size > MAX_TRACKED_ENTRIES) postUrls.delete(postUrls.keys().next().value);
+      postUrls.set(u, { exp: stored[u], bytes: postEntryBytes(u, 0) });
+      evictPostMap(postUrls, now);
       return true;
     }
   }
@@ -964,8 +1192,11 @@ heldSyncChain = (async () => {
     if (u.length <= MAX_STORED_URL_LEN && exp > now && !skipUrls.has(u) && skipUrls.size < MAX_TRACKED_ENTRIES) skipUrls.set(u, exp);
   }
   for (const [u, exp] of Object.entries((s && s.postUrls) || {})) {
-    if (exp > now && !postUrls.has(u) && postUrls.size < MAX_TRACKED_ENTRIES) postUrls.set(u, exp);
+    if (typeof exp === "number" && exp > now && !postUrls.has(u)) {
+      postUrls.set(u, { exp, bytes: postEntryBytes(u, 0) });
+    }
   }
+  evictPostMap(postUrls, now);
   for (const [u, v] of Object.entries((s && s.linkKeys) || {})) {
     if (u.length <= MAX_STORED_URL_LEN && v && v.exp > now && !linkKeys.has(u) && linkKeys.size < MAX_TRACKED_ENTRIES) linkKeys.set(u, v);
   }
@@ -1041,9 +1272,9 @@ function extFromPath(str) {
     // keep raw
   }
   const base = s.split(/[\\/]/).pop() || "";
-  const splitArch = /\.([a-z0-9]{1,8})\.\d{3}$/i.exec(base);
+  const splitArch = /\.([a-z0-9]{1,16})\.\d{3}$/i.exec(base);
   if (splitArch) return splitArch[1].toLowerCase();
-  const m = /\.([a-z0-9]{1,8})$/i.exec(base);
+  const m = /\.([a-z0-9]{1,16})$/i.exec(base);
   return m ? m[1].toLowerCase() : "";
 }
 
@@ -1137,14 +1368,15 @@ function forgetHoldLater(id, h) {
   }, 60 * 1000);
 }
 
-function holdDownload(id, { pause = false, suggest = null } = {}) {
+function holdDownload(id, { pause = false, suggest = null, url = "" } = {}) {
   let h = held.get(id);
   if (!h || h.state === "released") {
-    h = { state: "deciding", paused: false, suggest: null, timer: null, filename: "", finalUrl: "", mime: "", size: -1 };
+    h = { state: "deciding", paused: false, suggest: null, timer: null, url: "", filename: "", finalUrl: "", mime: "", size: -1 };
     held.set(id, h);
     // Never keep a download hostage: without an answer in time, the browser gets it back.
     h.timer = setTimeout(() => releaseDownload(id), HOLD_LIMIT_MS);
   }
+  if (url) h.url = url;
   if (suggest) h.suggest = suggest;
   if (pause && !h.paused && h.state === "deciding") {
     h.paused = true;
@@ -1209,6 +1441,7 @@ function quickVerdict(item) {
   const keys = keysFor(item.url, url);
   if (keys && keys.prevent) return "no";
   if (isPost(item.url, url)) return "no";
+  if (hasAuthUrl(item.url, url)) return "no";
   const state = gdmState;
   if (!sessionHydrated || interceptEnabledCache === null || !state || !state.connected || !state.settings) return "maybe";
   const settings = state.settings;
@@ -1244,6 +1477,7 @@ async function evaluateDownload(item) {
   const keys = await keysForAsync(item.url, url);
   if (keys && keys.prevent) return null;
   if (await isPostAsync(item.url, url)) return null;
+  if (hasAuthUrl(item.url, url)) return null;
   const bypassException = forceAllowed(item, keys);
   if (!bypassException && (isException(item.url, settings) || (url !== item.url && isException(url, settings))
     || isExceptionSite(item.referrer, settings) || isExceptionSite(keys && keys.tabUrl, settings))) return null;
@@ -1263,6 +1497,7 @@ async function evaluateDownload(item) {
 async function cancelBrowserCopy(id, h) {
   const wasReleased = h.state === "released";
   h.state = "taken";
+  untrackDownloadInFlight(id);
   clearTimeout(h.timer);
   h.suggest = null; // never name it: the browser copy is cancelled before it is ever shown
   syncKeepAlive();
@@ -1320,11 +1555,11 @@ async function considerDownload(item, hold = null) {
   // Atomic check-and-claim (no await between these lines).
   if (handledIds.has(item.id)) return;
   handledIds.add(item.id);
-  const h = holdDownload(item.id);
+  const h = holdDownload(item.id, { url: item.url });
   await interceptDownload(item, verdict, h);
 }
 
-async function interceptDownload(item, verdict, h = holdDownload(item.id)) {
+async function interceptDownload(item, verdict, h = holdDownload(item.id, { url: item.url })) {
   const url = verdict.url;
   const force = !!verdict.force;
   // Paused (and out of sight) first; the browser copy is removed once GDM really takes the download.
@@ -1362,6 +1597,8 @@ async function interceptDownload(item, verdict, h = holdDownload(item.id)) {
     const settings = gdmState && gdmState.settings;
     if (
       (lateKeys && lateKeys.prevent) ||
+      hasAuthUrl(item.url, effectiveFinalUrl) ||
+      isPost(item.url, effectiveFinalUrl) ||
       (!force && settings && effectiveFinalUrl !== url && isException(effectiveFinalUrl, settings))
     ) {
       resolveClaim(false);
@@ -1430,25 +1667,30 @@ async function interceptDownload(item, verdict, h = holdDownload(item.id)) {
 
 if (api.downloads && api.downloads.onCreated) {
   api.downloads.onCreated.addListener((item) => {
+    trackDownloadInFlight(item);
     // Stop the browser copy in the same tick when it is clearly for GDM (no storage or messages first).
     const v = quickVerdict(item);
-    const hold = v === "yes" ? holdDownload(item.id, { pause: true }) : null;
+    const hold = v === "yes" ? holdDownload(item.id, { pause: true, url: item && item.url }) : null;
     considerDownload(item, hold);
   });
 }
 
 // Chrome asks every extension for the file name before it shows the download. Holding that answer keeps
 // the download out of the browser's list until Golan has decided (what IDM does). Firefox has no such step.
-if (
+const hasDeterminingFilename = Boolean(
   api.downloads &&
   api.downloads.onDeterminingFilename &&
   typeof api.downloads.onDeterminingFilename.addListener === "function"
-) {
+);
+
+if (hasDeterminingFilename) {
   api.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    trackDownloadInFlight(item);
     const id = item && item.id;
     const h = held.get(id);
     if (h && h.state !== "released") {
       h.suggest = suggest; // deciding or already taken by GDM: stay out of sight
+      if (item.url) h.url = item.url;
       if (item.filename) h.filename = item.filename;
       if (item.finalUrl) h.finalUrl = item.finalUrl;
       if (item.mime) h.mime = item.mime;
@@ -1465,7 +1707,7 @@ if (
       safeSuggest(suggest);
       return undefined;
     }
-    const hold = holdDownload(id, { pause: v === "yes", suggest });
+    const hold = holdDownload(id, { pause: v === "yes", suggest, url: item && item.url });
     if (item.filename) hold.filename = item.filename;
     if (item.finalUrl) hold.finalUrl = item.finalUrl;
     if (item.mime) hold.mime = item.mime;
@@ -1473,17 +1715,41 @@ if (
     considerDownload(item, hold);
     return true;
   });
-} else if (
+}
+
+if (
   api.downloads &&
   api.downloads.onChanged &&
   typeof api.downloads.onChanged.addListener === "function"
 ) {
-  // Firefox lacks onDeterminingFilename; watch onChanged for Content-Disposition filenames on extensionless URLs.
   api.downloads.onChanged.addListener(async (delta) => {
-    if (!delta || typeof delta.id !== "number" || handledIds.has(delta.id)) return;
-    if (!delta.filename || !delta.filename.current) return;
-    const found = (await call(api.downloads.search.bind(api.downloads), { id: delta.id })) || [];
-    if (found[0]) considerDownload(found[0], null);
+    if (!delta || typeof delta.id !== "number") return;
+    if (delta.finalUrl && typeof delta.finalUrl.current === "string" && delta.finalUrl.current) {
+      const entry = inFlightDownloads.get(delta.id);
+      if (entry) entry.urls.add(delta.finalUrl.current);
+    }
+    if (delta.state && (delta.state.current === "complete" || delta.state.current === "interrupted")) {
+      untrackDownloadInFlight(delta.id);
+      return;
+    }
+    // Firefox lacks onDeterminingFilename; watch onChanged for Content-Disposition filenames on extensionless URLs.
+    if (!hasDeterminingFilename && !handledIds.has(delta.id) && delta.filename && delta.filename.current) {
+      const found = (await call(api.downloads.search.bind(api.downloads), { id: delta.id })) || [];
+      if (found[0]) {
+        trackDownloadInFlight(found[0]);
+        considerDownload(found[0], null);
+      }
+    }
+  });
+}
+
+if (
+  api.downloads &&
+  api.downloads.onErased &&
+  typeof api.downloads.onErased.addListener === "function"
+) {
+  api.downloads.onErased.addListener((id) => {
+    if (typeof id === "number") untrackDownloadInFlight(id);
   });
 }
 
@@ -1548,13 +1814,49 @@ async function clearTabMedia(tabId, pageUrl) {
   updateBadge(tabId, 0);
 }
 
+function currentStateBadge() {
+  if (interceptEnabledCache === false) {
+    return { text: i18nMsg("badgeOff"), color: BADGE_OFF_COLOR };
+  }
+  if (gdmState && gdmState.connected === false) {
+    return { text: i18nMsg("badgeOffline"), color: BADGE_WARN_COLOR };
+  }
+  if (isGolanOutdated(gdmState)) {
+    return { text: i18nMsg("badgeOutdated"), color: BADGE_OUTDATED_COLOR };
+  }
+  // Working normally: no badge, so the icon stays clean and a badge always means something needs a look.
+  return { text: "", color: BADGE_COLOR };
+}
+
+function syncStateBadge() {
+  try {
+    const actionApi = api.action || api.browserAction;
+    if (!actionApi) return;
+    const sb = currentStateBadge();
+    call(actionApi.setBadgeText.bind(actionApi), { text: sb.text });
+    call(actionApi.setBadgeBackgroundColor.bind(actionApi), { color: sb.color });
+    for (const [tabId, entry] of mediaCache) {
+      const count = entry && Array.isArray(entry.items) ? entry.items.length : 0;
+      updateBadge(tabId, count);
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
 function updateBadge(tabId, count) {
   try {
     const actionApi = api.action || api.browserAction;
     if (!actionApi) return;
-    call(actionApi.setBadgeText.bind(actionApi), { tabId, text: count > 0 ? String(count) : "" });
-    if (count > 0) {
+    const settings = gdmState && gdmState.settings;
+    const showMediaCount = interceptEnabledCache !== false && (!settings || settings.mediaPanel !== false) && count > 0;
+    if (showMediaCount) {
+      call(actionApi.setBadgeText.bind(actionApi), { tabId, text: String(count) });
       call(actionApi.setBadgeBackgroundColor.bind(actionApi), { tabId, color: BADGE_COLOR });
+    } else {
+      const sb = currentStateBadge();
+      call(actionApi.setBadgeText.bind(actionApi), { tabId, text: sb.text });
+      call(actionApi.setBadgeBackgroundColor.bind(actionApi), { tabId, color: sb.color });
     }
   } catch (e) {
     // tab gone - ignore
@@ -1749,9 +2051,24 @@ if (api.webRequest && api.webRequest.onResponseStarted) {
     (details) => {
       if (details.requestId) {
         const now = Date.now();
-        for (const [rid, exp] of postRequestIds) if (exp < now) postRequestIds.delete(rid);
-        const postExp = postRequestIds.get(details.requestId);
-        if (postExp && postExp > now) recordPostUrl(details.url, postExp);
+        for (const [rid, entry] of postRequestIds) {
+          if (!entry || (entry.exp < now && !isUrlPinnedByInFlightDownload(entry.url))) {
+            postRequestIds.delete(rid);
+          }
+        }
+        const postEntry = postRequestIds.get(details.requestId);
+        if (postEntry && (postEntry.exp > now || isUrlPinnedByInFlightDownload(postEntry.url))) {
+          recordPostUrl(details.url, Math.max(postEntry.exp, now + 30000), 0);
+        }
+        for (const [rid, entry] of authRequestIds) {
+          if (!entry || (entry.exp < now && !isUrlPinnedByInFlightDownload(entry.url))) {
+            authRequestIds.delete(rid);
+          }
+        }
+        const authEntry = authRequestIds.get(details.requestId);
+        if (authEntry && (authEntry.exp > now || isUrlPinnedByInFlightDownload(authEntry.url))) {
+          recordAuthUrl(details.url, Math.max(authEntry.exp, now + 30000));
+        }
       }
       if (details.type === "main_frame") {
         if (details.tabId >= 0 && !/^\s*attachment\b/i.test(headerValue(details.responseHeaders, "content-disposition"))) {
@@ -2025,13 +2342,51 @@ async function downloadAllLinks(tab) {
     notify(i18nMsg("errNoLinksFound"));
     return { ok: false, error: "no-links" };
   }
+  // Cap native message payload within the 16 MB streamed limit so oversized pages still send links and warn the user.
+  const MAX_DOWNLOAD_ALL_BYTES = 16 * 1024 * 1024;
+  const encoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
+  const byteLen = (s) => {
+    if (encoder) return encoder.encode(s).length;
+    let b = 0;
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c < 0x80) b += 1;
+      else if (c < 0x800) b += 2;
+      else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length && s.charCodeAt(i + 1) >= 0xdc00 && s.charCodeAt(i + 1) <= 0xdfff) {
+        b += 4;
+        i++;
+      } else b += 3;
+    }
+    return b;
+  };
+  let capped = false;
+  let overheadBytes = byteLen(JSON.stringify({
+    action: "downloadAll",
+    referrer: tab.url,
+    userAgent: navigator.userAgent,
+    capped: true,
+    _rid: 999999999,
+    links: []
+  })) + 64;
+  const boundedLinks = [];
+  let usedBytes = overheadBytes;
+  for (const item of validLinks) {
+    const itemBytes = byteLen(JSON.stringify(item)) + 1;
+    if (usedBytes + itemBytes > MAX_DOWNLOAD_ALL_BYTES) {
+      capped = true;
+      break;
+    }
+    boundedLinks.push(item);
+    usedBytes += itemBytes;
+  }
   const res = await sendToGdm({
     action: "downloadAll",
     referrer: tab.url,
     userAgent: navigator.userAgent,
-    links: validLinks
+    capped,
+    links: boundedLinks
   });
-  return { ...res, count: validLinks.length };
+  return { ...res, count: boundedLinks.length, capped };
 }
 
 function isStreamItem(item) {
@@ -2209,15 +2564,33 @@ async function handleMessage(msg, sender) {
       return { ok: true };
     }
     case "panel-settings": {
+      const interceptOn = await isInterceptEnabled();
       const state = await getGdmState();
       const st = (state && state.settings) || DEFAULT_SETTINGS;
       const tabUrl = (sender && sender.tab && sender.tab.url) || "";
-      const blocked = isMediaPanelException(tabUrl, st);
-      return { enabled: st.mediaPanel !== false && !blocked };
+      const siteExcluded = Boolean(tabUrl && (isException(tabUrl, st) || isExceptionSite(tabUrl, st)));
+      const captureDisabled = !interceptOn || st.intercept === false;
+      const blocked = captureDisabled || siteExcluded || isMediaPanelException(tabUrl, st);
+      return { enabled: st.mediaPanel !== false && !blocked, captureDisabled, siteExcluded };
     }
     case "get-status": {
       const state = await refreshSettings();
-      return { connected: !!state.connected, version: state.version || "", interceptEnabled: await isInterceptEnabled() };
+      return {
+        connected: !!state.connected,
+        version: state.version || "",
+        outdated: isGolanOutdated(state),
+        interceptEnabled: await isInterceptEnabled()
+      };
+    }
+    case "sync-settings": {
+      await isInterceptEnabled();
+      const stored = await storageGet("local", "gdmState");
+      if (stored && stored.gdmState) {
+        const nv = stored.gdmState;
+        gdmState = { ...nv, settings: nv.settings ? normalizeSettings(nv.settings) : null };
+      }
+      syncStateBadge();
+      return { ok: true };
     }
     case "get-media":
       return { items: await getTabMedia(msg.tabId) };
@@ -2244,6 +2617,102 @@ if (api.runtime && api.runtime.onMessage) {
       .then((res) => sendResponse(res))
       .catch(() => sendResponse({ ok: false, error: "internal-error" }));
     return true; // async response
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard shortcuts (commands)
+// ---------------------------------------------------------------------------
+
+async function getActiveTabForCommand(passedTab) {
+  if (passedTab && typeof passedTab.id === "number" && passedTab.url) return passedTab;
+  if (!api.tabs || typeof api.tabs.query !== "function") return passedTab || null;
+  const tabs = await call(api.tabs.query.bind(api.tabs), { active: true, currentWindow: true });
+  return (tabs && tabs[0]) || passedTab || null;
+}
+
+function inspectPageTargetInTab() {
+  let focusedUrl = "";
+  try {
+    const active = document.activeElement;
+    const a = active && typeof active.closest === "function" ? active.closest("a[href]") : null;
+    if (a && a.href) focusedUrl = String(a.href).trim();
+  } catch (e) {
+    // ignore
+  }
+  let videoSrc = "";
+  try {
+    for (const v of document.querySelectorAll("video")) {
+      const s = v.currentSrc || v.src || "";
+      if (/^https?:\/\//i.test(s)) {
+        videoSrc = s;
+        break;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return { focusedUrl, videoSrc };
+}
+
+async function handleCommand(command, passedTab) {
+  if (command === "toggle-capture") {
+    const cur = await isInterceptEnabled();
+    const next = !cur;
+    interceptEnabledCache = next;
+    await storageSet("local", { interceptEnabled: next });
+    syncStateBadge();
+    notify(i18nMsg(next ? "toastInterceptOn" : "toastInterceptOff"));
+    return { ok: true, interceptEnabled: next };
+  }
+  if (command === "send-to-golan") {
+    const tab = await getActiveTabForCommand(passedTab);
+    if (!tab || !tab.url || tab.incognito) {
+      if (!tab || !tab.incognito) notify(i18nMsg("errNothingToDownload"));
+      return { ok: false, error: "bad-page" };
+    }
+    if (isMagnetUrl(tab.url) || isFtpUrl(tab.url)) {
+      return downloadUrl(tab.url, "");
+    }
+    if (!isHttpUrl(tab.url)) {
+      notify(i18nMsg("errNothingToDownload"));
+      return { ok: false, error: "bad-page" };
+    }
+    let focusedUrl = "";
+    let videoSrc = "";
+    if (api.scripting && typeof api.scripting.executeScript === "function" && typeof tab.id === "number") {
+      const res = await call(api.scripting.executeScript.bind(api.scripting), {
+        target: { tabId: tab.id },
+        func: inspectPageTargetInTab
+      });
+      const info = res && res[0] && res[0].result;
+      if (info && typeof info === "object" && !Array.isArray(info)) {
+        focusedUrl = typeof info.focusedUrl === "string" ? info.focusedUrl : "";
+        videoSrc = typeof info.videoSrc === "string" ? info.videoSrc : "";
+      }
+    }
+    if (focusedUrl && (isMagnetUrl(focusedUrl) || isDownloadableLink(focusedUrl))) {
+      return downloadUrl(focusedUrl, tab.url);
+    }
+    const mediaItems = typeof tab.id === "number" ? await getTabMedia(tab.id) : [];
+    if (mediaItems.length > 0 || videoSrc) {
+      return sendMedia(tab, tab.title, videoSrc ? [videoSrc] : []);
+    }
+    const state = await getGdmState();
+    const settings = (state && state.settings) || DEFAULT_SETTINGS;
+    const urlExt = extFromPath(tab.url) || extFromPath(filenameFromUrlQuery(tab.url));
+    const isMediaExt = Boolean(urlExt && MEDIA_EXT_RE.test("." + urlExt));
+    if (urlExt && !isMediaExt && (settings.extensions || []).includes(urlExt)) {
+      return downloadUrl(tab.url, tab.url);
+    }
+    return sendMedia(tab, tab.title);
+  }
+  return { ok: false, error: "unknown-command" };
+}
+
+if (api.commands && api.commands.onCommand && typeof api.commands.onCommand.addListener === "function") {
+  api.commands.onCommand.addListener((command, tab) => {
+    handleCommand(command, tab);
   });
 }
 

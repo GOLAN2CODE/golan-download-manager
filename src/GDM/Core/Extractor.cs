@@ -42,7 +42,7 @@ public static class Extractor
 
     static readonly string[] SevenZipExtensions =
     [
-        ".7z", ".rar", ".tar", ".gz", ".tgz", ".xz", ".bz2", ".zst",
+        ".7z", ".rar", ".tar", ".gz", ".gzip", ".tgz", ".xz", ".bz2", ".tbz2", ".tbz", ".zst",
     ];
 
     static readonly Regex PartRarRegex = new(
@@ -100,6 +100,40 @@ public static class Extractor
 
         var stem = Path.GetFileNameWithoutExtension(name);
         return FileNames.Sanitize(string.IsNullOrWhiteSpace(stem) ? "archive" : stem);
+    }
+
+    static bool IsGzipArchive(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        var name = Path.GetFileName(path);
+        return name.EndsWith(".gz", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".gzip", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase);
+    }
+
+    static bool IsBzip2Archive(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        var name = Path.GetFileName(path);
+        return name.EndsWith(".bz2", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".tbz2", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".tbz", StringComparison.OrdinalIgnoreCase);
+    }
+
+    static bool IsStreamCompressedArchive(string path)
+        => IsGzipArchive(path) || IsBzip2Archive(path);
+
+    static string DefaultStreamEntryName(string archivePath)
+    {
+        var fileName = Path.GetFileName(archivePath);
+        if (fileName.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase) && fileName.Length > 4)
+            return fileName[..^4] + ".tar";
+        if (fileName.EndsWith(".tbz2", StringComparison.OrdinalIgnoreCase) && fileName.Length > 5)
+            return fileName[..^5] + ".tar";
+        if (fileName.EndsWith(".tbz", StringComparison.OrdinalIgnoreCase) && fileName.Length > 4)
+            return fileName[..^4] + ".tar";
+        var stripped = Path.GetFileNameWithoutExtension(fileName);
+        return string.IsNullOrWhiteSpace(stripped) ? "extracted" : stripped;
     }
 
     public static ExtractionPlan Plan(
@@ -733,17 +767,28 @@ public static class Extractor
             var archiveDir = Path.GetDirectoryName(effectiveArchive);
             var sevenZipExe = Find7Zip(custom7ZipPath, forbiddenDir: archiveDir);
             if (sevenZipExe == null)
-                return new ExtractionResult(ArchiveExtractState.SkippedNo7Zip, plan.TargetDir, Loc.T($"extract.err.no_7z"));
-
-            result = await ExtractWith7ZipAsync(
-                sevenZipExe,
-                effectiveArchive,
-                plan.TargetDir,
-                existingRule,
-                askPassword,
-                maxTotalBytes,
-                maxEntries,
-                ct).ConfigureAwait(false);
+            {
+                if (IsGzipArchive(effectiveArchive) && !mp.IsMultiPart)
+                {
+                    result = await ExtractGzipNativeAsync(effectiveArchive, plan.TargetDir, existingRule, maxTotalBytes, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    return new ExtractionResult(ArchiveExtractState.SkippedNo7Zip, plan.TargetDir, Loc.T($"extract.err.no_7z"));
+                }
+            }
+            else
+            {
+                result = await ExtractWith7ZipAsync(
+                    sevenZipExe,
+                    effectiveArchive,
+                    plan.TargetDir,
+                    existingRule,
+                    askPassword,
+                    maxTotalBytes,
+                    maxEntries,
+                    ct).ConfigureAwait(false);
+            }
         }
 
         if (result.State == ArchiveExtractState.Extracted && deleteAfterSuccess)
@@ -809,6 +854,32 @@ public static class Extractor
                     return new ExtractionResult(ArchiveExtractState.Failed, targetDir, Loc.T($"extract.err.password_cancelled"));
             }
 
+            if (IsStreamCompressedArchive(archivePath)
+                || (listing.Entries.Count == 1 && !listing.Entries[0].IsFolder && listing.TotalUncompressedSize <= 0))
+            {
+                long effectiveMaxBytes = MaxAllowedUncompressedBytes(archiveSize, maxTotalBytes);
+                string entryName = listing.Entries.Count >= 1 && !string.IsNullOrWhiteSpace(listing.Entries[0].Path)
+                    ? Path.GetFileName(listing.Entries[0].Path.Replace('\\', '/'))
+                    : DefaultStreamEntryName(archivePath);
+                if (string.IsNullOrWhiteSpace(entryName))
+                    entryName = DefaultStreamEntryName(archivePath);
+
+                var validDest = ValidateEntryPath(targetDir, entryName);
+                if (validDest == null)
+                    return new ExtractionResult(ArchiveExtractState.Failed, targetDir, Loc.T($"extract.err.zip_slip", entryName));
+
+                return await ExtractSingleStreamWith7ZipAsync(
+                    sevenZipExe,
+                    archivePath,
+                    targetDir,
+                    validDest,
+                    existingRule,
+                    password,
+                    effectiveMaxBytes,
+                    zonePayload,
+                    ct).ConfigureAwait(false);
+            }
+
             Directory.CreateDirectory(targetDir);
             var preExisting = new HashSet<string>(
                 Directory.EnumerateFiles(targetDir, "*", SearchOption.AllDirectories).Select(Path.GetFullPath),
@@ -828,6 +899,207 @@ public static class Extractor
         catch (Exception ex)
         {
             return new ExtractionResult(ArchiveExtractState.Failed, targetDir, ex.Message);
+        }
+    }
+
+    static async Task<ExtractionResult> ExtractSingleStreamWith7ZipAsync(
+        string sevenZipExe,
+        string archivePath,
+        string targetDir,
+        string destPath,
+        ExistingFileRule existingRule,
+        string? password,
+        long effectiveMaxBytes,
+        string zonePayload,
+        CancellationToken ct)
+    {
+        bool dirExistedBefore = Directory.Exists(targetDir);
+        string finalDest = destPath;
+        if (File.Exists(finalDest))
+        {
+            if (existingRule == ExistingFileRule.Skip)
+            {
+                Directory.CreateDirectory(targetDir);
+                return new ExtractionResult(ArchiveExtractState.Extracted, targetDir);
+            }
+            if (existingRule == ExistingFileRule.Rename)
+                finalDest = FileNames.Unique(finalDest);
+        }
+
+        Directory.CreateDirectory(targetDir);
+        var parent = Path.GetDirectoryName(finalDest);
+        if (!string.IsNullOrEmpty(parent))
+            Directory.CreateDirectory(parent);
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromMinutes(10));
+        var token = timeoutCts.Token;
+
+        var psi = new ProcessStartInfo(sevenZipExe)
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+        psi.ArgumentList.Add("x");
+        psi.ArgumentList.Add("-so");
+        psi.ArgumentList.Add("-y");
+        psi.ArgumentList.Add(string.IsNullOrEmpty(password) ? "-p-" : $"-p{password}");
+        psi.ArgumentList.Add(Path.GetFullPath(archivePath));
+
+        using var proc = Process.Start(psi)!;
+        try { proc.StandardInput.Close(); }
+        catch (InvalidOperationException) { /* process already exited */ }
+
+        using var reg = token.Register(() =>
+        {
+            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); }
+            catch (InvalidOperationException) { /* process already exited */ }
+        });
+
+        Task<string> errTask = proc.StandardError.ReadToEndAsync(CancellationToken.None);
+        try
+        {
+            long totalStreamed = 0;
+            var buffer = new byte[65536];
+            var stdout = proc.StandardOutput.BaseStream;
+
+            await using (var outStream = new FileStream(finalDest, FileMode.Create, FileAccess.Write, FileShare.None, 65536, FileOptions.Asynchronous))
+            {
+                while (true)
+                {
+                    token.ThrowIfCancellationRequested();
+                    int n = await stdout.ReadAsync(buffer.AsMemory(0, buffer.Length), token).ConfigureAwait(false);
+                    if (n <= 0) break;
+
+                    totalStreamed += n;
+                    if (totalStreamed > effectiveMaxBytes)
+                    {
+                        try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); }
+                        catch (InvalidOperationException) { /* process already exited */ }
+                        throw new InvalidDataException(Loc.T($"extract.err.bomb_size"));
+                    }
+
+                    await outStream.WriteAsync(buffer.AsMemory(0, n), token).ConfigureAwait(false);
+                }
+            }
+
+            await proc.WaitForExitAsync(token).ConfigureAwait(false);
+            _ = await errTask.ConfigureAwait(false);
+            if (proc.ExitCode != 0)
+                throw new InvalidDataException(Loc.T($"extract.err.7z_failed", proc.ExitCode));
+
+            MarkOfTheWeb.WriteRawPayload(finalDest, zonePayload);
+            return new ExtractionResult(ArchiveExtractState.Extracted, targetDir);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            CleanupFailedStreamTarget(finalDest, targetDir, dirExistedBefore);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            CleanupFailedStreamTarget(finalDest, targetDir, dirExistedBefore);
+            return new ExtractionResult(ArchiveExtractState.Failed, targetDir, ex.Message);
+        }
+        finally
+        {
+            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); }
+            catch (InvalidOperationException) { /* process already exited */ }
+        }
+    }
+
+    static async Task<ExtractionResult> ExtractGzipNativeAsync(
+        string archivePath,
+        string targetDir,
+        ExistingFileRule existingRule,
+        long maxTotalBytes,
+        CancellationToken ct)
+    {
+        bool dirExistedBefore = Directory.Exists(targetDir);
+        string? finalDest = null;
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!File.Exists(archivePath))
+                return new ExtractionResult(ArchiveExtractState.Failed, targetDir, "Archive not found");
+
+            long archiveSize = new FileInfo(archivePath).Length;
+            long effectiveMaxBytes = MaxAllowedUncompressedBytes(archiveSize, maxTotalBytes);
+            string zonePayload = MarkOfTheWeb.ReadZonePayloadOrDefault(archivePath);
+
+            string entryName = DefaultStreamEntryName(archivePath);
+            var validDest = ValidateEntryPath(targetDir, entryName);
+            if (validDest == null)
+                return new ExtractionResult(ArchiveExtractState.Failed, targetDir, Loc.T($"extract.err.zip_slip", entryName));
+
+            finalDest = validDest;
+            if (File.Exists(finalDest))
+            {
+                if (existingRule == ExistingFileRule.Skip)
+                {
+                    Directory.CreateDirectory(targetDir);
+                    return new ExtractionResult(ArchiveExtractState.Extracted, targetDir);
+                }
+                if (existingRule == ExistingFileRule.Rename)
+                    finalDest = FileNames.Unique(finalDest);
+            }
+
+            Directory.CreateDirectory(targetDir);
+            var parent = Path.GetDirectoryName(finalDest);
+            if (!string.IsNullOrEmpty(parent))
+                Directory.CreateDirectory(parent);
+
+            long totalStreamed = 0;
+            var buffer = new byte[65536];
+            await using (var fs = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous))
+            await using (var gz = new GZipStream(fs, CompressionMode.Decompress))
+            await using (var outStream = new FileStream(finalDest, FileMode.Create, FileAccess.Write, FileShare.None, 65536, FileOptions.Asynchronous))
+            {
+                while (true)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int n = await gz.ReadAsync(buffer.AsMemory(0, buffer.Length), ct).ConfigureAwait(false);
+                    if (n <= 0) break;
+
+                    totalStreamed += n;
+                    if (totalStreamed > effectiveMaxBytes)
+                        throw new InvalidDataException(Loc.T($"extract.err.bomb_size"));
+
+                    await outStream.WriteAsync(buffer.AsMemory(0, n), ct).ConfigureAwait(false);
+                }
+            }
+
+            MarkOfTheWeb.WriteRawPayload(finalDest, zonePayload);
+            return new ExtractionResult(ArchiveExtractState.Extracted, targetDir);
+        }
+        catch (OperationCanceledException)
+        {
+            CleanupFailedStreamTarget(finalDest, targetDir, dirExistedBefore);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            CleanupFailedStreamTarget(finalDest, targetDir, dirExistedBefore);
+            return new ExtractionResult(ArchiveExtractState.Failed, targetDir, ex.Message);
+        }
+    }
+
+    static void CleanupFailedStreamTarget(string? filePath, string targetDir, bool dirExistedBefore)
+    {
+        try { if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath)) File.Delete(filePath); }
+        catch (IOException) { /* best-effort partial file cleanup */ }
+        if (!dirExistedBefore)
+        {
+            try
+            {
+                if (Directory.Exists(targetDir) && !Directory.EnumerateFileSystemEntries(targetDir).Any())
+                    Directory.Delete(targetDir);
+            }
+            catch (IOException) { /* best-effort empty folder cleanup */ }
         }
     }
 

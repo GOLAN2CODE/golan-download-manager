@@ -52,6 +52,8 @@ public partial class OptionsWindow
 
         p.Children.Add(Card(
             Label(Loc.T("win.options.torrent.seeding_card")),
+            Label(Loc.T("win.options.torrent.upload_limit")),
+            Number(_working.TorrentMaxUploadSpeedKB, v => _working.TorrentMaxUploadSpeedKB = v, 0, 1024000),
             Label(Loc.T("win.options.torrent.stop_ratio")),
             ratioBox,
             Label(Loc.T("win.options.torrent.stop_minutes")),

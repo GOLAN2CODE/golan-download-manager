@@ -675,6 +675,8 @@ public sealed partial class HttpDownloader
     async Task StartFreshAsync(CancellationToken ct, bool allowRange = true)
     {
         var origUri = new Uri(_item.Url);
+        if (origUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+            _item.DownloadedOverPlainHttp = true;
         Uri? preResolved = null;
         if (!string.IsNullOrWhiteSpace(_item.ResolvedUrl)
             && Uri.TryCreate(_item.ResolvedUrl, UriKind.Absolute, out var pr)
@@ -682,6 +684,8 @@ public sealed partial class HttpDownloader
             && IsAllowedRedirectTarget(origUri, pr))
         {
             preResolved = pr;
+            if (pr.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+                _item.DownloadedOverPlainHttp = true;
         }
 
         _item.ResetProgress();

@@ -69,8 +69,11 @@ public partial class SchedulerWindow : Window
         RetriesBox.Text = _queue.Retries.ToString();
         OpenWhenDoneBox.Text = _queue.OpenWhenDone;
         ExitBox.IsChecked = _queue.ExitWhenDone;
+        SleepBox.IsChecked = _queue.SleepWhenDone;
+        HibernateBox.IsChecked = _queue.HibernateWhenDone;
         ShutdownBox.IsChecked = _queue.ShutdownWhenDone;
         ForceBox.IsChecked = _queue.ForceProcesses;
+        ForceBox.IsEnabled = ShutdownBox.IsChecked == true;
         MaxSimultaneousBox.Text = _queue.MaxSimultaneous.ToString();
         _loading = false;
         RefreshItems();
@@ -158,6 +161,20 @@ public partial class SchedulerWindow : Window
         UpdateNextStart();
     }
 
+    void PowerOption_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_loading && sender is CheckBox { IsChecked: true } chosen)
+        {
+            _loading = true;
+            if (chosen != SleepBox) SleepBox.IsChecked = false;
+            if (chosen != HibernateBox) HibernateBox.IsChecked = false;
+            if (chosen != ShutdownBox) ShutdownBox.IsChecked = false;
+            _loading = false;
+        }
+        ForceBox.IsEnabled = ShutdownBox.IsChecked == true;
+        SyncQueueFromControls();
+    }
+
     void QueueOptionChanged_Click(object sender, RoutedEventArgs e) => SyncQueueFromControls();
     void QueueOptionChanged_SelectedDateChanged(object sender, SelectionChangedEventArgs e) => SyncQueueFromControls();
     void QueueControl_LostFocus(object sender, RoutedEventArgs e) => SyncQueueFromControls();
@@ -218,8 +235,11 @@ public partial class SchedulerWindow : Window
         if (int.TryParse(RetriesBox.Text, out var retries)) _queue.Retries = Math.Max(0, retries);
         _queue.OpenWhenDone = OpenWhenDoneBox.Text.Trim();
         _queue.ExitWhenDone = ExitBox.IsChecked == true;
+        _queue.SleepWhenDone = SleepBox.IsChecked == true;
+        _queue.HibernateWhenDone = HibernateBox.IsChecked == true;
         _queue.ShutdownWhenDone = ShutdownBox.IsChecked == true;
         _queue.ForceProcesses = ForceBox.IsChecked == true;
+        ForceBox.IsEnabled = ShutdownBox.IsChecked == true;
         if (int.TryParse(MaxSimultaneousBox.Text, out var max)) _queue.MaxSimultaneous = Math.Clamp(max, 1, 10);
         ValidateTimes();
         UpdateNextStart();

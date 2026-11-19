@@ -150,5 +150,6 @@
   "autoinstall.offer.heading": "Install the browser extension automatically?",
   "autoinstall.offer.body": "Golan did not find its extension in your detected browser(s) ({0}). Press “Install now” to open your browser visibly and set it up automatically, or choose “Later” to set it up anytime from Help or Options.",
   "autoinstall.offer.install_now": "Install now",
-  "autoinstall.offer.later": "Later"
+  "autoinstall.offer.later": "Later",
+  "win.options.torrent.upload_limit": "Max upload speed limit (KB/s — 0 = unlimited):"
 }

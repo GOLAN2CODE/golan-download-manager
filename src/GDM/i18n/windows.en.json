@@ -485,5 +485,11 @@
   "win.options.save.invalid_temp": "Temporary folder is invalid or not writable: {0}",
   "win.batch.empty_paste": "Paste links above, then click \"Read Links\", or click \"Download Selected\" directly.",
   "win.batch.empty_filter": "No links match the current filters.",
-  "win.scheduler.err_empty_name": "Enter a queue name."
+  "win.scheduler.err_empty_name": "Enter a queue name.",
+  "win.scheduler.sleep_when_done": "Put computer to sleep when done",
+  "win.scheduler.hibernate_when_done": "Hibernate computer when done",
+  "win.batch.page_cap_title": "16 MB Page Limit Reached",
+  "win.batch.page_cap_msg": "Page exceeded the 16 MB read cap; only links from the first 16 MB were loaded.",
+  "win.batch.select_row_aria": "Select link",
+  "win.grabber.select_row_aria": "Select file"
 }

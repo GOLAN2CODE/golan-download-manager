@@ -485,5 +485,11 @@
   "win.options.save.invalid_temp": "مجلد الملفات المؤقتة غير صالح أو لا يمكن الكتابة فيه: {0}",
   "win.batch.empty_paste": "الصق الروابط أعلاه ثم اضغط «قراءة الروابط»، أو اضغط «تنزيل المحدد» مباشرة.",
   "win.batch.empty_filter": "لا توجد روابط تطابق عوامل التصفية الحالية.",
-  "win.scheduler.err_empty_name": "أدخل اسماً للقائمة."
+  "win.scheduler.err_empty_name": "أدخل اسماً للقائمة.",
+  "win.scheduler.sleep_when_done": "وضع الكمبيوتر في السكون عند الانتهاء",
+  "win.scheduler.hibernate_when_done": "إسبات الكمبيوتر عند الانتهاء",
+  "win.batch.page_cap_title": "تم بلوغ حد حجم الصفحة (16 ميغابايت)",
+  "win.batch.page_cap_msg": "تجاوز حجم الصفحة حد القراءة البالغ 16 ميغابايت؛ تم استخراج الروابط من أول 16 ميغابايت فقط.",
+  "win.batch.select_row_aria": "تحديد الرابط",
+  "win.grabber.select_row_aria": "تحديد الملف"
 }

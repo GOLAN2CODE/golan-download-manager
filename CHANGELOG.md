@@ -1,5 +1,18 @@
 # سجل التغييرات · Changelog
 
+## 2.7.0 — 2026-11-20
+- التشغيل الأول صار نافذة واحدة بخطوتين: الترحيب ثم عرض تثبيت إضافة المتصفح · First run is now one window with two steps: the welcome, then the browser extension offer.
+- إعادة تسمية التنزيل بـ F2 وتغيير تصنيفه من القائمة، مع فحص الاسم والمجلد قبل النقل · Rename a download with F2 and change its category from the menu, with the name and folder checked before the move.
+- خيار «سكون» و«إسبات» بعد انتهاء قائمة الانتظار مع عدّ تنازلي يمكن إلغاؤه · Sleep and Hibernate after a queue finishes, with a countdown that can be cancelled.
+- حد لسرعة الرفع في التورنت، وإعدادات التورنت تُطبّق فورًا بلا إعادة تشغيل · An upload speed limit for torrents, and torrent settings apply at once without a restart.
+- تحذير قبل فتح ملف تنفيذي نُزّل عبر اتصال غير مشفّر · A warning before opening an executable that was downloaded over a plain connection.
+- دعم بث DASH متعدد الفترات، وحد أمان لفك ملفات ‎.gz و‎.bz2 المضخّمة · Multi-period DASH streams, and a safety limit when unpacking oversized .gz and .bz2 files.
+- سهولة الوصول: دعم التباين العالي، شريط عنوان داكن مع المظهر الداكن، وأسماء مقروءة لقارئ الشاشة · Accessibility: high contrast support, a dark title bar with the dark theme, and readable names for screen readers.
+- إشعارات شريط المهام تفتح الملف أو مجلده عند النقر · Tray notifications open the file or its folder when clicked.
+- حد 16 ميغابايت لقائمة الروابط الواردة من المتصفح مع إشعار عند القص · A 16 MB cap on the link list coming from the browser, with a notice when it is cut.
+- إضافة المتصفح: صفحة خيارات، اختصاران (Alt+Shift+G لتشغيل وإيقاف الالتقاط، Alt+Shift+D للإرسال إلى جولان)، شارة حالة على الأيقونة، وثلاث حالات واضحة في النافذة المنبثقة (متصل، غير متصل، جولان قديم) · Browser extension: an options page, two shortcuts (Alt+Shift+G toggles capture, Alt+Shift+D sends to Golan), a state badge on the icon, and three clear popup states (connected, not connected, Golan outdated).
+- إضافة المتصفح: أداء أخف على الصفحات الثقيلة، والطلبات التي تحمل ترويسة تفويض تبقى للمتصفح، ولا تُقرأ أجسام الطلبات · Browser extension: lighter on heavy pages, requests carrying an authorization header stay with the browser, and request bodies are not read.
+
 ## 2.6.2 — 2026-11-19
 - عنوان التحديث التلقائي صار يشير إلى الحساب الرسمي الحالي GOLAN2CODE · The automatic update address now points at the current official account, GOLAN2CODE.
 - لا يُعتبر التنزيل مكتملًا إذا كان الملف المؤقت أقصر من الحجم المعلن، ولا تُحذف ملفات الكوكيز إذا تعذّرت قراءة قائمة التنزيلات · A download is not finished when its temporary file is shorter than the declared size, and cookie files are kept when the download list cannot be read.

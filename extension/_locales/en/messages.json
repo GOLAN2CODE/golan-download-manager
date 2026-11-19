@@ -163,5 +163,98 @@
   },
   "errDrmProtected": {
     "message": "This video is DRM-protected and cannot be downloaded."
+  },
+  "cmdToggleCapture": {
+    "message": "Toggle download capture on or off"
+  },
+  "cmdSendToGolan": {
+    "message": "Send current page link or video to Golan"
+  },
+  "badgeOn": {
+    "message": "ON"
+  },
+  "badgeOff": {
+    "message": "OFF"
+  },
+  "badgeOffline": {
+    "message": "!"
+  },
+  "badgeOutdated": {
+    "message": "UPD"
+  },
+  "statusOutdated": {
+    "message": "Golan outdated"
+  },
+  "popupConnectedState": {
+    "message": "Ready to capture downloads"
+  },
+  "btnOptions": {
+    "message": "Options"
+  },
+  "popupOutdatedBanner": {
+    "message": "Golan desktop app is outdated."
+  },
+  "popupOutdatedVersionBanner": {
+    "message": "Golan ($1) is older than this extension."
+  },
+  "popupOutdatedHelp": {
+    "message": "Update Golan Download Manager and click Check again."
+  },
+  "btnCheckAgain": {
+    "message": "Check again"
+  },
+  "toastStillOutdated": {
+    "message": "Golan still needs an update"
+  },
+  "optionsTitle": {
+    "message": "Golan Extension Options"
+  },
+  "optVideoSniffingTitle": {
+    "message": "Video sniffing on pages"
+  },
+  "optVideoSniffingDesc": {
+    "message": "Detect video streams and show the download button on videos"
+  },
+  "optMinSizeLabel": {
+    "message": "Minimum file size (KB)"
+  },
+  "optMinSizeHint": {
+    "message": "Capture unlisted files at or above this size (0 disables size threshold)"
+  },
+  "optExtensionsLabel": {
+    "message": "Captured file types"
+  },
+  "optExtensionsHint": {
+    "message": "File extensions separated by spaces or commas"
+  },
+  "optSaveBtn": {
+    "message": "Save changes"
+  },
+  "optResetExtBtn": {
+    "message": "Restore default types"
+  },
+  "optExcludedSitesTitle": {
+    "message": "Excluded sites"
+  },
+  "optExcludedSitesHint": {
+    "message": "Do not capture downloads or scan pages on these domains (e.g. example.com or *.example.com)"
+  },
+  "optSitePlaceholder": {
+    "message": "example.com"
+  },
+  "optAddSiteBtn": {
+    "message": "Add"
+  },
+  "optRemoveSiteBtn": {
+    "message": "Remove"
+  },
+  "optSitesEmpty": {
+    "message": "No excluded sites."
+  },
+  "optToastSaved": {
+    "message": "Settings saved ✓"
+  },
+  "optErrInvalidSite": {
+    "message": "Enter a valid domain name"
   }
 }

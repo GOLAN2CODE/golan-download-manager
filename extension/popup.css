@@ -5,6 +5,7 @@
   --accent-ink: #131313;
   --accent-text: #78350F;
   --green: #16a34a;
+  --amber: #d97706;
   --red: #dc2626;
   --text: #131313;
   --muted: #5b616e;
@@ -79,9 +80,45 @@ button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
   background: var(--muted);
 }
 .status[data-state="on"] .dot { background: var(--green); box-shadow: 0 0 0 3px rgba(22,163,74,.18); }
+.status[data-state="outdated"] .dot { background: var(--amber); box-shadow: 0 0 0 3px rgba(217,119,6,.18); }
 .status[data-state="off"] .dot { background: var(--red); box-shadow: 0 0 0 3px rgba(220,38,38,.18); }
 .status[data-state="on"] .status-text { color: var(--green); }
+.status[data-state="outdated"] .status-text { color: var(--amber); }
 .status[data-state="off"] .status-text { color: var(--red); }
+
+.state-banner[hidden], .banner[hidden] { display: none; }
+
+.state-banner.ok-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(22,163,74,.08);
+  border: 1px solid rgba(22,163,74,.28);
+  border-radius: 10px;
+  padding: 7px 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.state-banner.ok-banner[hidden] { display: none; }
+.state-msg {
+  font-weight: 600;
+  color: var(--text);
+  min-width: 0;
+}
+.ok-banner .banner-btn {
+  border-color: rgba(22,163,74,.35);
+  flex: none;
+}
+
+.banner.warn-banner {
+  background: rgba(217,119,6,.1);
+  border-color: rgba(217,119,6,.35);
+  color: var(--amber);
+}
+.warn-banner .banner-btn {
+  border-color: rgba(217,119,6,.4);
+}
 
 .banner {
   background: rgba(220,38,38,.08);

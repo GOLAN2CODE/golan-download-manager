@@ -10,8 +10,16 @@ const I18N_FALLBACK = {
   statusChecking: "Checking…",
   statusConnected: "Connected",
   statusOffline: "Golan is not running",
+  statusOutdated: "Golan outdated",
+  popupConnectedState: "Ready to capture downloads",
+  btnOptions: "Options",
   popupOfflineBanner: "Golan is not running — open Golan Download Manager and click Retry.",
   popupOfflineHelp: "Start Golan from the Start Menu or Desktop. If it is already open, enable Browser Integration in Options.",
+  popupOutdatedBanner: "Golan desktop app is outdated.",
+  popupOutdatedVersionBanner: "Golan ($1) is older than this extension.",
+  popupOutdatedHelp: "Update Golan Download Manager and click Check again.",
+  btnCheckAgain: "Check again",
+  toastStillOutdated: "Golan still needs an update",
   popupInterceptTitle: "Capture downloads from browser",
   popupInterceptDesc: "Send downloaded files to Golan instead of the browser",
   popupDownloadPageVideo: "Download video from this page",
@@ -208,11 +216,61 @@ function showResult(res, okText) {
   }
 }
 
-function setStatus(connected) {
+function isNewerVersion(candidate, current) {
+  const parse = (v) => String(v || "").trim().replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
+  const a = parse(candidate);
+  const b = parse(current);
+  if (a.some(isNaN) || b.some(isNaN) || a.length === 0 || b.length === 0) return false;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] || 0;
+    const y = b[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+function getManifestVersion() {
+  try {
+    if (api.runtime && typeof api.runtime.getManifest === "function") {
+      const m = api.runtime.getManifest();
+      return (m && typeof m.version === "string" && m.version) || "";
+    }
+  } catch (e) {
+    // ignore
+  }
+  return "";
+}
+
+function resolveStatusMode(input) {
+  if (!input || input === false) return { mode: "off", version: "" };
+  if (input === true) return { mode: "on", version: "" };
+  if (!input.connected) return { mode: "off", version: String(input.version || "") };
+  const extVer = getManifestVersion();
+  const ver = String(input.version || "");
+  const outdated = Boolean(input.outdated === true || (extVer && ver && isNewerVersion(extVer, ver)));
+  return { mode: outdated ? "outdated" : "on", version: ver };
+}
+
+function setStatus(input) {
+  const { mode, version } = resolveStatusMode(input);
   const status = $("status");
-  status.dataset.state = connected ? "on" : "off";
-  $("statusText").textContent = connected ? i18nMsg("statusConnected") : i18nMsg("statusOffline");
-  $("banner").hidden = connected;
+  status.dataset.state = mode;
+  if (mode === "on") {
+    $("statusText").textContent = i18nMsg("statusConnected");
+  } else if (mode === "outdated") {
+    $("statusText").textContent = i18nMsg("statusOutdated");
+  } else {
+    $("statusText").textContent = i18nMsg("statusOffline");
+  }
+  $("banner").hidden = mode !== "off";
+  $("connectedBanner").hidden = mode !== "on";
+  $("outdatedBanner").hidden = mode !== "outdated";
+  if (mode === "outdated") {
+    $("outdatedTitle").textContent = version
+      ? i18nMsg("popupOutdatedVersionBanner", [version])
+      : i18nMsg("popupOutdatedBanner");
+  }
+  return mode;
 }
 
 // ---- Media list helpers ----
@@ -372,25 +430,44 @@ async function init() {
   });
 
   // Show last known status immediately, then ask background for a fresh ping.
-  if (gdmState && typeof gdmState.connected === "boolean") setStatus(gdmState.connected);
-  send({ type: "get-status" }).then((st) => setStatus(!!(st && st.connected)));
+  if (gdmState && typeof gdmState.connected === "boolean") setStatus(gdmState);
+  send({ type: "get-status" }).then((st) => setStatus(st || false));
 
-  $("retryBtn").addEventListener("click", async () => {
-    const b = $("retryBtn");
-    b.disabled = true;
-    b.textContent = i18nMsg("statusChecking");
+  if (api.storage && api.storage.onChanged && typeof api.storage.onChanged.addListener === "function") {
+    api.storage.onChanged.addListener((changes, area) => {
+      if (area === "local" && changes && changes.interceptEnabled) {
+        $("interceptToggle").checked = changes.interceptEnabled.newValue !== false;
+      }
+    });
+  }
+
+  $("openOptionsBtn").addEventListener("click", async () => {
+    if (api.runtime && typeof api.runtime.openOptionsPage === "function") {
+      await callApi(api.runtime.openOptionsPage.bind(api.runtime));
+    } else if (api.tabs && typeof api.tabs.create === "function" && api.runtime && typeof api.runtime.getURL === "function") {
+      await callApi(api.tabs.create.bind(api.tabs), { url: api.runtime.getURL("options.html") });
+    }
+  });
+
+  async function recheckConnection(btnEl, defaultLabelKey) {
+    btnEl.disabled = true;
+    btnEl.textContent = i18nMsg("statusChecking");
     $("status").dataset.state = "checking";
     $("statusText").textContent = i18nMsg("statusChecking");
     try {
       const st = await send({ type: "get-status" });
-      const ok = !!(st && st.connected);
-      setStatus(ok);
-      toast(ok ? i18nMsg("toastConnected") : i18nMsg("errNotRunningShort"), ok ? "ok" : "err");
+      const mode = setStatus(st || false);
+      if (mode === "on") toast(i18nMsg("toastConnected"), "ok");
+      else if (mode === "outdated") toast(i18nMsg("toastStillOutdated"), "err");
+      else toast(i18nMsg("errNotRunningShort"), "err");
     } finally {
-      b.textContent = i18nMsg("btnRetry");
-      b.disabled = false;
+      btnEl.textContent = i18nMsg(defaultLabelKey);
+      btnEl.disabled = false;
     }
-  });
+  }
+
+  $("retryBtn").addEventListener("click", () => recheckConnection($("retryBtn"), "btnRetry"));
+  $("checkUpdateBtn").addEventListener("click", () => recheckConnection($("checkUpdateBtn"), "btnCheckAgain"));
 
   // "Show the button again on this site".
   const host = pageOk ? hostOf(currentTab.url) : "";
