@@ -2087,12 +2087,10 @@ public static class StreamDownloader
             req.Headers.TryAddWithoutValidation("User-Agent",
                 string.IsNullOrWhiteSpace(item.UserAgent) ? HttpDownloader.DefaultUserAgent : item.UserAgent);
 
-            if (!string.IsNullOrWhiteSpace(item.Referrer)
-                && Uri.TryCreate(item.Referrer, UriKind.Absolute, out var refUri)
-                && (refUri.Scheme != Uri.UriSchemeHttps || current.Scheme == Uri.UriSchemeHttps))
-            {
-                req.Headers.TryAddWithoutValidation("Referer", item.Referrer);
-            }
+            // Same rule as ordinary downloads: another site (a key server, an ad host) gets the page's origin only,
+            // never its full address with sign-in tokens in it, and nothing at all on a step down from https.
+            if (HttpDownloader.ReferrerForRequest(item.Referrer, current) is { } safeRef)
+                req.Headers.TryAddWithoutValidation("Referer", safeRef);
 
             var cookieHeader = BuildCookieHeader(item, current, netscapeCookies);
             if (!string.IsNullOrEmpty(cookieHeader))
@@ -2331,7 +2329,9 @@ public static class StreamDownloader
                 if (c.ExpiresUnix > 0 && c.ExpiresUnix < now) continue;
                 bool domainOk = host == c.Domain || (c.IncludeSubdomains && host.EndsWith("." + c.Domain, StringComparison.Ordinal));
                 if (!domainOk) continue;
-                if (!path.StartsWith(c.Path, StringComparison.Ordinal)) continue;
+                // "/app" covers "/app" and "/app/x", not "/app-other".
+                if (!path.StartsWith(c.Path, StringComparison.Ordinal)
+                    || (path.Length > c.Path.Length && !c.Path.EndsWith('/') && path[c.Path.Length] != '/')) continue;
                 merged[c.Name] = c.Value;
             }
         }

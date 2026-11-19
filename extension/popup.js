@@ -167,11 +167,14 @@ function isHttpUrl(url) {
 
 function toast(text, kind) {
   const el = $("toast");
+  // Emptied first, so a screen reader announces the same message again when it repeats.
+  el.textContent = "";
   el.textContent = text;
   el.className = "toast show" + (kind ? " " + kind : "");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     el.className = "toast";
+    el.textContent = ""; // a hidden toast must not stay readable
   }, 2600);
 }
 

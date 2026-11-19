@@ -460,10 +460,6 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
         bool langChanged = !string.Equals(_manager.Settings.Language, _working.Language, StringComparison.OrdinalIgnoreCase);
         bool magnetChanged = _manager.Settings.RegisterMagnetProtocol != _working.RegisterMagnetProtocol;
         CopySettings(_manager.Settings, _working);
-        if (langChanged)
-        {
-            Loc.Init(_manager.Settings.Language);
-        }
         _manager.Settings.Save();
         _manager.ApplySettings();
         if (!AppPaths.IsPortable)
@@ -488,6 +484,11 @@ public partial class OptionsWindow : Window, INotifyPropertyChanged
             App.Instance.MainView?.UpdateSpeedGraphVisibility();
         }
         DialogResult = true;
+        // The open windows keep the language they were built in, so a new language is applied by a restart only
+        // (switching half of the texts in place leaves a window that is part Arabic, part English).
+        if (langChanged && App.Instance != null
+            && Confirm.Ask(Owner, Loc.T("main.lang.restartTitle"), Loc.T("main.lang.restartPrompt"), Loc.T("main.lang.restartYes")))
+            App.Instance.RestartApp();
     }
 
     void SelectNavTab(string key)

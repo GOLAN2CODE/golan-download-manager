@@ -24,7 +24,7 @@
   "torrent.status.stopped": "متوقف",
   "torrent.progress.sectionTitle": "شبكة التورنت والمشاركة",
   "torrent.progress.peers": "الأقران",
-  "torrent.progress.seeds": "البذور",
+  "torrent.progress.seeds": "المزوِّدون",
   "torrent.progress.ratio": "نسبة المشاركة",
   "torrent.progress.uploadSpeed": "سرعة الرفع",
   "torrent.progress.uploaded": "تم رفعه",

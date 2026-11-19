@@ -251,6 +251,9 @@ public sealed class WindowsInstallHost : IInstallHost
         {
             DeleteRegistryKeyTree(subKey);
         }
+        // The automatic extension installer also registers with these two when they are installed.
+        foreach (var root in new[] { @"Software\Yandex\YandexBrowser", @"Software\Perplexity\Comet" })
+            DeleteRegistryKeyTree($@"{root}\NativeMessagingHosts\{BrowserIntegration.HostName}");
 
         DeleteFile(AppPaths.NativeManifest);
         DeleteFile(BrowserIntegration.FirefoxNativeManifest);

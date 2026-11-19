@@ -1,7 +1,7 @@
 # جولان — مدير التنزيل (Golan Download Manager — GDM)
 
-[![Download](https://img.shields.io/github/v/release/dark9guna/golan-download-manager-releases?label=%D8%AA%D9%86%D8%B2%D9%8A%D9%84%20%2F%20Download&color=FDD103&labelColor=111111)](https://github.com/dark9guna/golan-download-manager-releases/releases/latest)
-[![CI](https://github.com/dark9guna/golan-download-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/dark9guna/golan-download-manager/actions/workflows/ci.yml)
+[![Download](https://img.shields.io/github/v/release/GOLAN2CODE/golan-download-manager-releases?label=%D8%AA%D9%86%D8%B2%D9%8A%D9%84%20%2F%20Download&color=FDD103&labelColor=111111)](https://github.com/GOLAN2CODE/golan-download-manager-releases/releases/latest)
+[![CI](https://github.com/GOLAN2CODE/golan-download-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/GOLAN2CODE/golan-download-manager/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows)
 
@@ -181,8 +181,8 @@ powershell -ExecutionPolicy Bypass -File GDM/tests/smoke.ps1
 ## الرخصة · License
 
 جولان برنامج حر ومفتوح المصدر بموجب **رخصة جنو العمومية الإصدار ٣** ([GPL-3.0](LICENSE)). يحق لك استخدامه ودراسته وتعديله وإعادة نشره، بشرط أن تنشر أي نسخة معدّلة بالرخصة نفسها ومع كودها المصدري.
-النسخة الجاهزة الرسمية متاحة من [صفحة الإصدارات](https://github.com/dark9guna/golan-download-manager-releases/releases/latest)، وتشمل تجربة ٣٠ يومًا ثم مفتاح تفعيل يدعم استمرار التطوير.
+النسخة الجاهزة الرسمية متاحة من [صفحة الإصدارات](https://github.com/GOLAN2CODE/golan-download-manager-releases/releases/latest)، وتشمل تجربة ٣٠ يومًا ثم مفتاح تفعيل يدعم استمرار التطوير.
 
-Golan is free software under the **GNU General Public License v3** ([GPL-3.0](LICENSE)): use, study, modify and share it, provided modified versions are released under the same licence with their source. Official builds are on the [releases page](https://github.com/dark9guna/golan-download-manager-releases/releases/latest) (30-day trial, then an activation key that funds development).
+Golan is free software under the **GNU General Public License v3** ([GPL-3.0](LICENSE)): use, study, modify and share it, provided modified versions are released under the same licence with their source. Official builds are on the [releases page](https://github.com/GOLAN2CODE/golan-download-manager-releases/releases/latest) (30-day trial, then an activation key that funds development).
 
-Copyright © 2026 Khalid ([@dark9guna](https://github.com/dark9guna)). Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Copyright © 2026 Khalid ([@GOLAN2CODE](https://github.com/GOLAN2CODE)). Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -13,7 +13,7 @@ namespace Golan.Gdm;
 public partial class App : Application
 {
     public static App Instance => (App)Current;
-    public const string Version = "2.6.1";
+    public const string Version = "2.6.2";
 
     public bool StartHidden { get; init; }
     public string? StartUrl { get; init; }
@@ -947,7 +947,7 @@ public partial class App : Application
         menu.Items.Add(drop);
         menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add(Loc.T("main.tray.options"), null, (_, _) => { ShowMain(); ShowOptions(); });
-        menu.Items.Add(Loc.T("main.tray.exit"), null, (_, _) => ExitApp());
+        menu.Items.Add(Loc.T("main.tray.exit"), null, (_, _) => RequestExit());
         var old = _tray.ContextMenuStrip;
         _tray.ContextMenuStrip = menu;
         old?.Dispose();
@@ -981,6 +981,40 @@ public partial class App : Application
         {
             Log.Write("tray notify failed: " + ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Exit asked for by the user (menu, tray, closing the window). With downloads running it asks first: leaving
+    /// stops them all, and one whose server cannot resume starts from zero next time.
+    /// </summary>
+    public void RequestExit(Window? owner = null)
+    {
+        if (_exiting) return;
+        int active = Manager.ActiveCount;
+        if (active > 0)
+        {
+            var parent = owner ?? (MainView is { IsVisible: true } ? MainView : null);
+            if (!Confirm.Ask(parent, Loc.T("main.exit.confirmTitle"), Loc.T("main.exit.confirmBody", active), Loc.T("main.exit.confirmYes"), danger: true))
+                return;
+        }
+        ExitApp();
+    }
+
+    /// <summary>Starts Golan again two seconds after this copy leaves (used after a language change).</summary>
+    public void RestartApp()
+    {
+        var exe = Environment.ProcessPath ?? System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+        if (!string.IsNullOrWhiteSpace(exe))
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c timeout /t 2 >nul & start \"\" \"%GDM_RESTART_EXE%\"")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+            };
+            psi.Environment["GDM_RESTART_EXE"] = exe;
+            System.Diagnostics.Process.Start(psi);
+        }
+        ExitApp();
     }
 
     public void ExitApp()

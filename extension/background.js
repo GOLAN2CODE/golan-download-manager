@@ -167,6 +167,19 @@ function isMagnetUrl(url) {
 
 const MULTI_PART_SLDS = new Set(["co", "com", "org", "net", "gov", "edu", "ac", "mil"]);
 
+// Hosting where every sub-domain belongs to a different owner: two of them are never "the same site",
+// so a page on one cannot rename a file served from another (the browser draws the same line).
+const SHARED_HOST_SUFFIXES = [
+  "github.io", "gitlab.io", "vercel.app", "netlify.app", "pages.dev", "workers.dev", "r2.dev", "web.app",
+  "firebaseapp.com", "appspot.com", "azurewebsites.net", "blob.core.windows.net", "amazonaws.com",
+  "cloudfront.net", "herokuapp.com", "onrender.com", "fly.dev", "glitch.me", "surge.sh", "blogspot.com",
+  "wordpress.com", "githubusercontent.com"
+];
+
+function isSharedHost(host) {
+  return SHARED_HOST_SUFFIXES.some((s) => host === s || host.endsWith("." + s));
+}
+
 function sameSiteOrHost(urlA, urlB) {
   try {
     const a = new URL(urlA).hostname.replace(/\.$/, "").toLowerCase();
@@ -175,6 +188,7 @@ function sameSiteOrHost(urlA, urlB) {
     if (a === b) return true;
     const isIp = (h) => h.includes(":") || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(h);
     if (isIp(a) || isIp(b)) return false;
+    if (isSharedHost(a) || isSharedHost(b)) return false;
     if (a.endsWith("." + b) || b.endsWith("." + a)) return true;
     const partsA = a.split(".");
     const partsB = b.split(".");
@@ -484,6 +498,36 @@ function sameGdmState(a, b) {
   return JSON.stringify(a.settings) === JSON.stringify(b.settings);
 }
 
+function isNewerVersion(candidate, current) {
+  const parse = (v) => String(v || "").trim().replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
+  const a = parse(candidate);
+  const b = parse(current);
+  if (a.some(isNaN) || b.some(isNaN) || a.length === 0 || b.length === 0) return false;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] || 0;
+    const y = b[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+// After Golan updates itself, the folder this extension was loaded from holds the new version, but the browser
+// keeps running the old code until the extension is loaded again. So it loads itself again: once per Golan
+// version (remembered in storage), so a folder that did not change can never cause a loop.
+async function reloadIfGolanIsNewer(appVersion) {
+  try {
+    if (!appVersion || !api.runtime || typeof api.runtime.reload !== "function" || typeof api.runtime.getManifest !== "function") return;
+    if (!isNewerVersion(appVersion, api.runtime.getManifest().version)) return;
+    if (portWaiters.size > 0) return; // something is in flight: the next ping tries again
+    const got = await storageGet("local", "reloadedForVersion");
+    if (got && got.reloadedForVersion === appVersion) return;
+    await storageSet("local", { reloadedForVersion: appVersion });
+    api.runtime.reload();
+  } catch (e) {
+    // best effort: the old code keeps working
+  }
+}
+
 async function refreshSettings() {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
@@ -511,6 +555,7 @@ async function refreshSettings() {
     gdmState = state;
     if (changed) await storageSet("local", { gdmState: state });
     if (state.settings && JSON.stringify(state.settings.menuItems || []) !== oldMenus) createMenus();
+    if (state.connected) reloadIfGolanIsNewer(state.version);
     return state;
   })();
   try {
@@ -591,6 +636,14 @@ function isException(url, settings) {
   try { host = new URL(url).hostname; } catch (e) { return false; }
   if ((settings.exceptionSites || []).some((p) => hostMatches(p, host))) return true;
   return (settings.exceptionAddresses || []).some((p) => wildcardToRegex(p).test(url));
+}
+
+// The site the user is on, not only the server the file comes from (files usually come from a CDN host).
+function isExceptionSite(url, settings) {
+  if (!url) return false;
+  let host = "";
+  try { host = new URL(url).hostname; } catch (e) { return false; }
+  return (settings.exceptionSites || []).some((p) => hostMatches(p, host));
 }
 
 function isMediaPanelException(url, settings) {
@@ -996,7 +1049,8 @@ function extFromPath(str) {
 
 function basename(path) {
   if (!path) return "";
-  return String(path).replace(/[\r\n\t\0]+/g, "").split(/[\\/]/).pop().slice(0, 255) || "";
+  // Direction marks are dropped too: with one, "invoice_<mark>fdp.exe" is shown as "invoice_exe.pdf".
+  return String(path).replace(/[\r\n\t\0\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g, "").split(/[\\/]/).pop().slice(0, 255) || "";
 }
 
 function filenameFromDisposition(disp) {
@@ -1145,7 +1199,9 @@ function wantedBySettings(item, settings, allowForce, attrHint = null) {
 function quickVerdict(item) {
   if (!item || typeof item.id !== "number") return "no";
   if (item.state && item.state !== "in_progress") return "no";
-  if (item.byExtensionId && api.runtime && item.byExtensionId === api.runtime.id) return "no";
+  // Another extension's own download is its business (it names the file and waits for it), and a private
+  // window's download never leaves the browser: its address and the normal profile's cookies stay out of Golan.
+  if (item.byExtensionId || item.incognito) return "no";
   const url = item.finalUrl || item.url;
   if (!isInterceptableUrl(url) || !isInterceptableUrl(item.url)) return "no";
   if (interceptEnabledCache === false) return "no";
@@ -1158,7 +1214,8 @@ function quickVerdict(item) {
   const settings = state.settings;
   if (!settings.intercept) return "no";
   const bypassException = forceAllowed(item, keys);
-  if (!bypassException && (isException(item.url, settings) || (url !== item.url && isException(url, settings)))) return "no";
+  if (!bypassException && (isException(item.url, settings) || (url !== item.url && isException(url, settings))
+    || isExceptionSite(item.referrer, settings) || isExceptionSite(keys && keys.tabUrl, settings))) return "no";
   const forceCapture = Boolean(keys && keys.force);
   const attr = downloadAttrFor(item.url, url);
   return wantedBySettings(item, settings, forceCapture, attr) ? "yes" : "no";
@@ -1169,7 +1226,7 @@ async function evaluateDownload(item) {
   if (!item || typeof item.id !== "number") return null;
   if (handledIds.has(item.id)) return null;
   if (item.state && item.state !== "in_progress") return null;
-  if (item.byExtensionId && api.runtime && item.byExtensionId === api.runtime.id) return null;
+  if (item.byExtensionId || item.incognito) return null; // see quickVerdict
 
   const url = item.finalUrl || item.url;
   if (!isInterceptableUrl(url) || !isInterceptableUrl(item.url)) return null; // never blob:, data:, file:, filesystem:
@@ -1188,7 +1245,8 @@ async function evaluateDownload(item) {
   if (keys && keys.prevent) return null;
   if (await isPostAsync(item.url, url)) return null;
   const bypassException = forceAllowed(item, keys);
-  if (!bypassException && (isException(item.url, settings) || (url !== item.url && isException(url, settings)))) return null;
+  if (!bypassException && (isException(item.url, settings) || (url !== item.url && isException(url, settings))
+    || isExceptionSite(item.referrer, settings) || isExceptionSite(keys && keys.tabUrl, settings))) return null;
   const forceCapture = Boolean(keys && keys.force);
   const attr = await downloadAttrForAsync(item.url, url);
   if (!wantedBySettings(item, settings, forceCapture, attr)) return null;
@@ -1210,10 +1268,10 @@ async function cancelBrowserCopy(id, h) {
   syncKeepAlive();
   syncHeldIds();
   forgetHoldLater(id, h);
-  if (wasReleased) {
-    const found = (await call(api.downloads.search.bind(api.downloads), { id })) || [];
-    if (found[0] && found[0].state === "complete") return;
-  }
+  // A small file can finish in the browser before Golan answers. Erasing it then would only hide a file that
+  // stays on disk: a finished copy keeps its entry in the browser's list.
+  const found = (await call(api.downloads.search.bind(api.downloads), { id })) || [];
+  if (found[0] && found[0].state === "complete") return;
   await call(api.downloads.cancel.bind(api.downloads), id);
   await call(api.downloads.erase.bind(api.downloads), { id });
 }
@@ -1535,6 +1593,8 @@ function classifyMedia(details) {
     return null;
   }
   if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  // An error page or an empty answer at a ".mp4" / ".m3u8" address is not a video.
+  if (typeof details.statusCode === "number" && (details.statusCode >= 400 || details.statusCode === 204)) return null;
   const host = u.hostname.toLowerCase();
   if (host === "googlevideo.com" || host.endsWith(".googlevideo.com")) return null; // YouTube streams
   const path = u.pathname.toLowerCase();
@@ -1852,7 +1912,8 @@ async function sendMedia(tab, title, extraUrls = [], onlyUrls = null, options = 
     tabEntry = await loadTabMedia(tab.id);
   });
   const hasTabDrm = Boolean(tabDrm.get(tab.id) || (tabEntry && tabEntry.drm));
-  const isDrm = Boolean((options && options.drmProtected) || (!onlyUrls && hasTabDrm && extraUrls.length === 0));
+  // A stream picked from the popup's list on a protected page is as protected as the page's own video.
+  const isDrm = Boolean((options && options.drmProtected) || (hasTabDrm && extraUrls.length === 0));
   if (isDrm && options && options.fromContentScript) {
     notify(i18nMsg("errDrmProtected"));
     return { ok: false, error: "drm", message: i18nMsg("errDrmProtected") };
@@ -2073,6 +2134,10 @@ async function handleMessage(msg, sender) {
       let state = await getGdmState();
       if (state && !state.connected && Date.now() - (state.ts || 0) > 5000) state = await refreshSettings();
       if (!state || !state.connected || (state.settings && state.settings.intercept === false)) {
+        return { ok: false, intercepted: false };
+      }
+      // A site on the exceptions list keeps its magnet links for the program the user chose for them.
+      if (state.settings && isExceptionSite(sender && sender.tab && sender.tab.url, state.settings)) {
         return { ok: false, intercepted: false };
       }
       const res = await sendToGdm({ action: "add", url: msg.url.trim() });

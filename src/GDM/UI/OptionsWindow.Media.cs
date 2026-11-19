@@ -131,9 +131,9 @@ public partial class OptionsWindow
 
         var bitrateChoices = new[]
         {
-            ("128", "128 kbps"),
-            ("192", "192 kbps"),
-            ("320", "320 kbps")
+            ("128", Loc.T("video.mp3_128")),
+            ("192", Loc.T("video.mp3_192")),
+            ("320", Loc.T("video.mp3_320"))
         };
         p.Children.Add(Card(
             Label(Loc.T($"win.options.video.defaults_card")),

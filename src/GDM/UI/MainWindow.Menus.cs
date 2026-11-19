@@ -120,7 +120,7 @@ public partial class MainWindow
         if (pick.Value.Start) _manager.StartQueue(pick.Value.Queue);
     }
 
-    void Exit_Click(object sender, RoutedEventArgs e) => App.Instance.ExitApp();
+    void Exit_Click(object sender, RoutedEventArgs e) => App.Instance.RequestExit(this);
 
     // ---------- File menu ----------
 
@@ -149,7 +149,13 @@ public partial class MainWindow
 
     async void Redownload_Click(object sender, RoutedEventArgs e)
     {
-        foreach (var i in Selected) await _manager.RedownloadAsync(i);
+        var sel = Selected;
+        if (sel.Count == 0) return;
+        // Starting over throws away what is already on disk: never on a single slip of the mouse.
+        if (sel.Any(i => i.Downloaded > 0 || i.Status == DownloadStatus.Completed)
+            && !Confirm.Ask(this, Loc.T("main.redownload.confirmTitle"), Loc.T("main.redownload.confirmBody", sel.Count), Loc.T("main.redownload.confirmYes"), danger: true))
+            return;
+        foreach (var i in sel) await _manager.RedownloadAsync(i);
     }
 
     void Properties_Click(object sender, RoutedEventArgs e)
@@ -177,6 +183,9 @@ public partial class MainWindow
             App.Instance.Notify(Loc.T($"hash.status.verified"), Loc.T($"hash.notify.verified", item.FileName));
         else if (item.HashState == HashVerifyState.Mismatch)
             App.Instance.Notify(Loc.T($"hash.status.mismatch"), Loc.T($"hash.notify.mismatch", item.FileName), error: true);
+        else
+            // No fingerprint was found to compare with: say so instead of doing nothing.
+            Confirm.Info(this, Loc.T("hash.notify.noHashTitle"), Loc.T("hash.notify.noHash", item.FileName));
     }
 
     async void ExtractItem_Click(object sender, RoutedEventArgs e)
@@ -409,20 +418,7 @@ public partial class MainWindow
         _settings.Language = lang;
         _settings.Save();
         if (Confirm.Ask(this, Loc.T("main.lang.restartTitle"), Loc.T("main.lang.restartPrompt"), Loc.T("main.lang.restartYes")))
-        {
-            var exe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
-            if (!string.IsNullOrWhiteSpace(exe))
-            {
-                var psi = new ProcessStartInfo("cmd.exe", "/c timeout /t 2 >nul & start \"\" \"%GDM_RESTART_EXE%\"")
-                {
-                    CreateNoWindow = true,
-                    UseShellExecute = false,
-                };
-                psi.Environment["GDM_RESTART_EXE"] = exe;
-                Process.Start(psi);
-            }
-            App.Instance.ExitApp();
-        }
+            App.Instance.RestartApp();
     }
 
     // ---------- Help menu ----------

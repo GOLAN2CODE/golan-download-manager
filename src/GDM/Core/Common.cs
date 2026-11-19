@@ -93,12 +93,20 @@ public static class Json
         Converters = { new JsonStringEnumConverter() },
     };
 
-    public static void WriteAtomic(string path, string content)
+    /// <param name="flushToDisk">For the files that must survive a power cut (the download list, the settings).
+    /// Left off for files rewritten many times a minute, where forcing the disk each time would only slow the download.</param>
+    public static void WriteAtomic(string path, string content, bool flushToDisk = false)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         // A unique temp name per write: two saves (or a reader such as a CLI instance or antivirus scan) never collide.
         var tmp = path + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
-        File.WriteAllText(tmp, content, new UTF8Encoding(false));
+        // Flushed to the disk before the swap: after a power cut the new name must never point at an empty file.
+        using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            var bytes = new UTF8Encoding(false).GetBytes(content);
+            fs.Write(bytes, 0, bytes.Length);
+            fs.Flush(flushToDisk);
+        }
         for (int attempt = 0; ; attempt++)
         {
             try

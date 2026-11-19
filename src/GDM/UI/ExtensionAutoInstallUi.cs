@@ -373,7 +373,8 @@ public sealed class ExtensionAutoInstallPanel : Border
 
             var firstFailed = ShowResults(results);
             _onCompleted?.Invoke(results);
-            if (firstFailed != null)
+            // A browser locked by its organisation cannot be set up by hand either: the guide would only mislead.
+            if (firstFailed != null && firstFailed.Status != AutoInstallStatus.BlockedByPolicy)
                 OpenManualGuideFor(firstFailed.Browser);
 
             return results;

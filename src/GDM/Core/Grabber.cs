@@ -181,7 +181,7 @@ public sealed class SiteGrabber(GrabberProject p)
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            Log.Write("grabber page failed: " + page.Uri + " " + ex.Message);
+            Log.Write("grabber page failed: " + Log.StripUserInfo(page.Uri.ToString()) + " " + ex.Message);
             return;
         }
         finally

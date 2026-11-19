@@ -228,7 +228,9 @@ public partial class ProgressWindow : Window
             : _item.IsActive
                 ? Loc.T("main.progress.pause")
                 : (_item.Status == DownloadStatus.Error ? Loc.T("main.progress.retry") : Loc.T("main.progress.resume"));
-        PauseBtn.IsDefault = done;
+        // Never the Enter key's button once it means "open the file": this window comes to the front by itself,
+        // and an Enter meant for another program would run whatever was just downloaded.
+        PauseBtn.IsDefault = false;
         OpenBtn.Visibility = Visibility.Collapsed;
         bool canRefreshExpired = _item.Status == DownloadStatus.Error
             && _item.LastFailKind is FailKind.Expired or FailKind.Challenge

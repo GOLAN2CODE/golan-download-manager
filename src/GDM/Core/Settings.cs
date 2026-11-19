@@ -440,6 +440,9 @@ public sealed partial class AppSettings
         catch (Exception ex)
         {
             Log.Write("settings load failed: " + ex.Message);
+            // The unreadable file is kept aside: the next save would otherwise replace it with defaults for good.
+            try { File.Copy(AppPaths.SettingsFile, AppPaths.SettingsFile + ".bad", true); }
+            catch (Exception copyEx) when (copyEx is IOException or UnauthorizedAccessException) { /* best effort */ }
             s = new AppSettings();
         }
         s.Normalize();
@@ -448,7 +451,7 @@ public sealed partial class AppSettings
 
     public void Save()
     {
-        try { Json.WriteAtomic(AppPaths.SettingsFile, JsonSerializer.Serialize(this, Json.Options)); }
+        try { Json.WriteAtomic(AppPaths.SettingsFile, JsonSerializer.Serialize(this, Json.Options), flushToDisk: true); }
         catch (Exception ex) { Log.Write("settings save failed: " + ex.Message); }
     }
 

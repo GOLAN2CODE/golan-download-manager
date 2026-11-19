@@ -55,11 +55,14 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
         var manifestPath = Path.Combine(extDir, "manifest.json");
         var version = ReadManifestVersion(manifestPath)
             ?? typeof(BrowserIntegration).Assembly.GetName().Version?.ToString(3)
-            ?? "2.6.1";
+            ?? "2.6.2";
         var xpiPath = BrowserIntegration.FirefoxXpiPath;
         bool signed = IsSignedMozillaXpi(xpiPath);
 
-        return new PreparedExtension(extDir, version, manifestPath, xpiPath, signed);
+        // The folder's manifest is the Chromium one (no Firefox id, no background.scripts), so Firefox is given its
+        // own package: "Load Temporary Add-on" takes an .xpi as well as a manifest.
+        var firefoxLoadPath = File.Exists(xpiPath) ? xpiPath : manifestPath;
+        return new PreparedExtension(extDir, version, firefoxLoadPath, xpiPath, signed);
     }
 
     static void RegisterExtraChromiumNativeHostsIfPresent()
@@ -186,8 +189,7 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
                 // Keys go to whichever window is in front, so the shortcut is sent only while that is still the browser.
                 if (edit == null && !sentFocusShortcut && IsForeground(window))
                 {
-                    sentFocusShortcut = true;
-                    SendChord(VK_CONTROL, VK_L);
+                    sentFocusShortcut = SendChord(VK_CONTROL, VK_L);
                     await Task.Delay(150, ct).ConfigureAwait(false);
                     edit = FocusedEditOf(windowPid) ?? FindAddressBar(root);
                 }
@@ -303,11 +305,15 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
                 {
                     if (el.TryGetCurrentPattern(InvokePattern.Pattern, out var ipObj) && ipObj is InvokePattern ip)
                     {
+                        // A file dialog the user already has open (a "Save as" in another window of this browser)
+                        // must never be taken for the one this click is about to open.
+                        _dialogsBeforeInvoke = SnapshotFileDialogs();
                         ip.Invoke();
                         return true;
                     }
                     if (el.TryGetCurrentPattern(TogglePattern.Pattern, out var tpObj) && tpObj is TogglePattern tp)
                     {
+                        _dialogsBeforeInvoke = SnapshotFileDialogs();
                         tp.Toggle();
                         return true;
                     }
@@ -329,7 +335,7 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
         while (sw.Elapsed < timeout)
         {
             ct.ThrowIfCancellationRequested();
-            var dlgHwnd = FindFileDialogWindow(ownerWindow, ownerPid);
+            var dlgHwnd = FindFileDialogWindow(ownerWindow, ownerPid, _dialogsBeforeInvoke);
             if (dlgHwnd != 0)
             {
                 try
@@ -404,11 +410,8 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
             }
 
             // Fallback: Ctrl+W closes the tab in front, which is the verified one, but only if the browser really took the keyboard.
-            if (EnsureForeground(window))
-            {
-                SendChord(VK_CONTROL, VK_W);
+            if (EnsureForeground(window) && SendChord(VK_CONTROL, VK_W))
                 return Task.FromResult(true);
-            }
         }
         catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException or COMException)
         {
@@ -555,6 +558,8 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
         {
             if (!e.Current.IsEnabled || e.Current.IsOffscreen) continue;
             var n = SafeName(e);
+            // The dialog's search box is named after the folder it searches ("Search New folder"): never the path box.
+            if (n.Contains("Search", StringComparison.OrdinalIgnoreCase) || n.Contains("بحث", StringComparison.Ordinal)) continue;
             if (n.Contains("Folder", StringComparison.OrdinalIgnoreCase)
                 || n.Contains("File name", StringComparison.OrdinalIgnoreCase)
                 || n.Contains("المجلد", StringComparison.Ordinal)
@@ -730,13 +735,30 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
 
     static readonly TimeSpan FrontMostGuessDelay = TimeSpan.FromSeconds(3);
 
-    /// <summary>Every Chromium-family top-level window that exists right now (taken just before a launch).</summary>
+    /// <summary>
+    /// Every Chromium-family top-level window on screen right now (taken just before a launch). Hidden ones are left
+    /// out: a browser kept warm in the background shows such a window as the new one, and it is then ours.
+    /// </summary>
     static HashSet<nint> SnapshotBrowserWindows()
     {
         var set = new HashSet<nint>();
         EnumWindows((hwnd, _) =>
         {
-            if (GetWindowClass(hwnd) is "Chrome_WidgetWin_1" or "OperaWindowClass") set.Add(hwnd);
+            if (IsWindowVisible(hwnd) && GetWindowClass(hwnd) is "Chrome_WidgetWin_1" or "OperaWindowClass") set.Add(hwnd);
+            return true;
+        }, 0);
+        return set;
+    }
+
+    HashSet<nint>? _dialogsBeforeInvoke;
+
+    /// <summary>Every common file dialog on screen right now (taken just before the click that opens ours).</summary>
+    static HashSet<nint> SnapshotFileDialogs()
+    {
+        var set = new HashSet<nint>();
+        EnumWindows((hwnd, _) =>
+        {
+            if (IsWindowVisible(hwnd) && GetWindowClass(hwnd) == "#32770") set.Add(hwnd);
             return true;
         }, 0);
         return set;
@@ -834,7 +856,7 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
         }
     }
 
-    static nint FindFileDialogWindow(nint ownerWindow, uint ownerPid)
+    static nint FindFileDialogWindow(nint ownerWindow, uint ownerPid, IReadOnlyCollection<nint>? openedBefore = null)
     {
         nint owned = 0, sameProcess = 0;
         int sameProcessCount = 0;
@@ -842,6 +864,7 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
         {
             if (!IsWindowVisible(hwnd)) return true;
             if (GetWindowClass(hwnd) != "#32770") return true;
+            if (openedBefore != null && openedBefore.Contains(hwnd)) return true;
             if (GetWindow(hwnd, GW_OWNER) == ownerWindow)
             {
                 owned = hwnd;
@@ -874,8 +897,6 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
         lock (WebAccessibilityAsked)
         {
             if (WebAccessibilityAsked.TryGetValue(window, out var last) && now - last < 1000) return false;
-            if (WebAccessibilityAsked.Count > 64) WebAccessibilityAsked.Clear();
-            WebAccessibilityAsked[window] = now;
         }
 
         var pages = new List<nint>();
@@ -884,6 +905,13 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
             if (GetWindowClass(h) == "Chrome_RenderWidgetHostHWND") pages.Add(h);
             return true;
         }, 0);
+        // A window still starting up has no page yet: nothing was asked, so the next poll may ask at once.
+        if (pages.Count == 0) return false;
+        lock (WebAccessibilityAsked)
+        {
+            if (WebAccessibilityAsked.Count > 64) WebAccessibilityAsked.Clear();
+            WebAccessibilityAsked[window] = now;
+        }
 
         bool asked = false;
         foreach (var page in pages)
@@ -939,8 +967,12 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
         _ = SendInput((uint)inputs.Length, ref MemoryMarshal.GetReference(inputs), Marshal.SizeOf<INPUT>());
     }
 
-    static void SendChord(ushort modifierVk, ushort keyVk)
+    /// <summary>False (and nothing sent) while the user holds Shift, Alt or a Windows key: with one of them down the
+    /// shortcut would turn into another one (Ctrl+Shift+W closes the whole window).</summary>
+    static bool SendChord(ushort modifierVk, ushort keyVk)
     {
+        foreach (var held in new[] { 0x10 /* Shift */, 0x12 /* Alt */, 0x5B /* LWin */, 0x5C /* RWin */ })
+            if ((GetAsyncKeyState(held) & 0x8000) != 0) return false;
         // Strictly keyboard-only (never VK_LWIN / VK_RWIN, never mouse).
         Span<INPUT> inputs =
         [
@@ -949,7 +981,7 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
             MakeKeyInput(keyVk, keyUp: true),
             MakeKeyInput(modifierVk, keyUp: true),
         ];
-        _ = SendInput((uint)inputs.Length, ref MemoryMarshal.GetReference(inputs), Marshal.SizeOf<INPUT>());
+        return SendInput((uint)inputs.Length, ref MemoryMarshal.GetReference(inputs), Marshal.SizeOf<INPUT>()) == inputs.Length;
     }
 
     static INPUT MakeKeyInput(ushort vk, bool keyUp) => new()
@@ -991,6 +1023,7 @@ public sealed class UiaBrowserDriver : IBrowserAutomationDriver
         [PreserveSig] int QueryService(ref Guid guidService, ref Guid riid, out nint ppvObject);
     }
 
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vKey);
     [DllImport("user32.dll")] static extern bool EnumChildWindows(nint hWndParent, EnumWindowsProc lpEnumFunc, nint lParam);
     [DllImport("user32.dll")] static extern nint SendMessageTimeout(nint hWnd, uint msg, nint wParam, nint lParam, uint flags, uint timeoutMs, out nint result);
     [DllImport("oleacc.dll")] static extern int AccessibleObjectFromWindow(nint hwnd, uint objId, ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object? ppvObject);

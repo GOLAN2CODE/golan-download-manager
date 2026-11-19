@@ -24,8 +24,11 @@ public sealed partial class HttpDownloader
     /// <summary>Maximum allowed download size when Content-Length / Content-Range is known (default 64 GB).</summary>
     public static long MaxDownloadSize { get; set; } = 64L * 1024 * 1024 * 1024;
 
-    /// <summary>Maximum allowed download size when Content-Length is missing (default 512 MB).</summary>
-    public static long MaxUnknownSize { get; set; } = 512L * 1024 * 1024;
+    /// <summary>
+    /// Maximum allowed download size when Content-Length is missing (default 8 GB). Folder archives built on the fly
+    /// (repository zips, cloud-drive folders, compressed dumps) come without a length and are often larger than 512 MB.
+    /// </summary>
+    public static long MaxUnknownSize { get; set; } = 8L * 1024 * 1024 * 1024;
 
     /// <summary>Current options (proxy, logins, limits). Set by <see cref="Configure"/>.</summary>
     public static AppSettings Options { get; private set; } = new();
@@ -273,6 +276,8 @@ public sealed partial class HttpDownloader
         var p = await ProbeAsync(item, ct).ConfigureAwait(false);
         if (StreamDownloader.IsStreamMime(p.Mime) || StreamDownloader.IsDirectStreamUrl(p.FinalUri.ToString()))
             return false;
+        // A sign-in or Wi-Fi portal page answering in the file's place is not a new version of the file.
+        if (IsHtmlWebPageMime(p.Mime) && !IsHtmlFileName(item.FileName)) return false;
         if (p.ETag.Length > 0 && item.ETag.Length > 0) return p.ETag != item.ETag;
         if (p.LastModified != null && item.LastModified != null) return p.LastModified != item.LastModified;
         return p.Size > 0 && p.Size != item.TotalSize;
@@ -744,7 +749,7 @@ public sealed partial class HttpDownloader
                 }
                 catch (DownloadException ex) when (usingPreResolved && !ct.IsCancellationRequested)
                 {
-                    Log.Write($"pre-resolved target {start.Host} failed ({ex.Message}); falling back to {_item.Url}");
+                    Log.Write($"pre-resolved target {start.Host} failed ({ex.Message}); falling back to {Log.StripUserInfo(_item.Url)}");
                     usingPreResolved = false;
                     start = origUri;
                     allowRange = initialAllowRange;
@@ -848,6 +853,9 @@ public sealed partial class HttpDownloader
             _item.ActiveTempPath = "";
 
             EnsureSizeAllowed(_item.TempPath, probe.Size);
+            // A temp folder on another drive: the finished file is copied to the save folder, which needs the room too.
+            if (!string.Equals(Path.GetPathRoot(Path.GetFullPath(_item.TempPath)), Path.GetPathRoot(Path.GetFullPath(_item.FullPath)), StringComparison.OrdinalIgnoreCase))
+                EnsureSizeAllowed(_item.FullPath, probe.Size);
             _item.TotalSize = probe.Size;
             _item.Resumable = allowRange && probe.Resumable && probe.Size > 0;
 
@@ -1600,6 +1608,21 @@ public sealed partial class HttpDownloader
     async Task FinishAsync()
     {
         _item.Status = DownloadStatus.Merging;
+        // After a power cut the list can say "all pieces done" while the tail of the file never reached the disk.
+        // A file shorter than its known size is never handed over as complete: it starts over.
+        if (_item.TotalSize > 0)
+        {
+            long onDisk = -1;
+            try { onDisk = new FileInfo(_item.TempPath).Length; }
+            catch (IOException ex) { Log.Write("finish length check skipped: " + ex.Message); }
+            if (onDisk >= 0 && onDisk < _item.TotalSize)
+            {
+                Log.Write($"finished file is short ({onDisk} of {_item.TotalSize}): starting over {_item.FileName}");
+                MediaDownloader.TryDelete(_item.TempPath);
+                _item.ResetProgress();
+                throw new DownloadException(Loc.T("core.http.err_incomplete_segments"));
+            }
+        }
         MarkOfTheWeb.Write(_item.TempPath, _item.ResolvedUrl ?? _item.Url, _item.Referrer);
         for (int i = 0; ; i++)
         {

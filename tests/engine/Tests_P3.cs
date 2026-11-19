@@ -450,7 +450,9 @@ public static class Tests_P3
             Check("P3-7: MainWindow.ResumeAll_Click respects MaxSimultaneous and starts queues",
                 mainCs.Contains("MaxSimultaneous") && mainCs.Contains("StartQueue"));
             Check("P3-7: MainWindow.SetLanguage passes executable via GDM_RESTART_EXE env var",
-                mainCs.Contains("GDM_RESTART_EXE") && !mainCs.Contains("start \\\"\\\" \\\"{exe}\\\""));
+                // The restart itself lives in App.RestartApp (shared by the menu and the Options window).
+                mainCs.Contains("RestartApp()") && File.ReadAllText(Path.Combine(gdmRoot, "App.xaml.cs")) is var appCs
+                && appCs.Contains("GDM_RESTART_EXE") && !appCs.Contains("start \\\"\\\" \\\"{exe}\\\""));
         }
         catch (Exception ex)
         {

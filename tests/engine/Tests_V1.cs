@@ -895,7 +895,7 @@ public static class Tests_V1
             s.CheckForUpdates && Updater.EffectiveFeedUrl(s) == Updater.OfficialFeedUrl
             && Updater.EffectiveFeedUrl(new AppSettings { UpdateFeedUrl = " https://example.com/f.json " }) == "https://example.com/f.json"
             && Updater.EffectiveFeedUrl(new AppSettings { CheckForUpdates = false }) == ""
-            && Updater.OfficialFeedUrl.StartsWith("https://github.com/dark9guna/", StringComparison.Ordinal));
+            && Updater.OfficialFeedUrl.StartsWith("https://github.com/GOLAN2CODE/", StringComparison.Ordinal));
 
         var repoRoot = FindRepoRoot();
         var i18nDir = Path.Combine(repoRoot, "GDM", "src", "GDM", "i18n");

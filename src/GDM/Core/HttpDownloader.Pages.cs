@@ -61,6 +61,9 @@ public sealed partial class HttpDownloader
         return true;
     }
 
+    internal static bool IsHtmlFileName(string? name)
+        => Path.GetExtension(name ?? "").ToLowerInvariant() is ".htm" or ".html" or ".xhtml" or ".mht";
+
     internal static bool IsHtmlWebPageMime(string? mime)
         => !string.IsNullOrEmpty(mime)
            && (mime.StartsWith("text/html", StringComparison.OrdinalIgnoreCase)

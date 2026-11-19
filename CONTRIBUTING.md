@@ -4,7 +4,7 @@
 Thanks for your interest! Bug fixes, performance work, translations and new features are welcome.
 
 ## قبل ما تبلّش · Before you start
-- للأخطاء: افتح [مشكلة](https://github.com/dark9guna/golan-download-manager/issues) فيها خطوات إعادة الخطأ، ونسخة ويندوز، والسطور المهمة من `gdm.log` (بدون روابط أو كوكيز خاصة).
+- للأخطاء: افتح [مشكلة](https://github.com/GOLAN2CODE/golan-download-manager/issues) فيها خطوات إعادة الخطأ، ونسخة ويندوز، والسطور المهمة من `gdm.log` (بدون روابط أو كوكيز خاصة).
 - للمزايا الكبيرة: اقترحها بمشكلة أولًا لنتفق على الطريقة.
 - For bugs, open an issue with steps to reproduce, your Windows version and the relevant lines of `gdm.log` (no private links or cookies). Discuss large features in an issue first.
 

@@ -24,7 +24,7 @@ Copy-Item (Join-Path $build "GDM.exe") $payload -Force
 $sha = (Get-FileHash $payload -Algorithm SHA256).Hash.ToLowerInvariant()
 $feed = [ordered]@{
     version  = $version
-    url      = "https://github.com/dark9guna/golan-download-manager-releases/releases/download/v$version/GDM-update.exe"
+    url      = "https://github.com/GOLAN2CODE/golan-download-manager-releases/releases/download/v$version/GDM-update.exe"
     sha256   = $sha
     notes_ar = "إصدار جديد من جولان: $version"
     notes_en = "New Golan release: $version"

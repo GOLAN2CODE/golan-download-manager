@@ -73,7 +73,9 @@ public sealed class QueueScheduler(DownloadManager manager)
     {
         if (!q.StopEnabled || !TimeSpan.TryParse(q.StopTime, out var s)) return false;
         var stop = now.Date + s;
-        return now >= stop && now - stop < Window && (q.LastStop == null || q.LastStop < stop) && (q.LastStart == null || q.LastStart < stop);
+        // No one-hour window here: a computer asleep across the stop time must still stop the queue when it wakes.
+        // A queue the user started after the stop time has LastStart past it and keeps running.
+        return now >= stop && (q.LastStop == null || q.LastStop < stop) && (q.LastStart == null || q.LastStart < stop);
     }
 
     static bool PastStop(QueueDef q, DateTime now)

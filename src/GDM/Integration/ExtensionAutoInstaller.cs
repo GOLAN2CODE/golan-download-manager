@@ -470,7 +470,8 @@ public sealed class ExtensionAutoInstaller
                     ClipboardCopied: false,
                     FolderOpened: false,
                     RequiresRestartWarning: false,
-                    ManualSteps: BuildManualSteps(firefox: false, extensionsUrl, prepared));
+                    // No manual steps: they would tell the user to switch on the very thing the policy forbids.
+                    ManualSteps: []);
             }
 
             if (devModeState.IsToggledOn != true)
@@ -497,7 +498,7 @@ public sealed class ExtensionAutoInstaller
                             ClipboardCopied: false,
                             FolderOpened: false,
                             RequiresRestartWarning: false,
-                            ManualSteps: BuildManualSteps(firefox: false, extensionsUrl, prepared));
+                            ManualSteps: []);
                     }
 
                     return FallbackToManual(

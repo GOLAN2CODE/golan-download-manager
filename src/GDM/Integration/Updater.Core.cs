@@ -239,7 +239,7 @@ public static partial class Updater
     }
 
     /// <summary>Published with every release next to the installer (see installer/build-setup.ps1).</summary>
-    public const string OfficialFeedUrl = "https://github.com/dark9guna/golan-download-manager-releases/releases/latest/download/update.json";
+    public const string OfficialFeedUrl = "https://github.com/GOLAN2CODE/golan-download-manager-releases/releases/latest/download/update.json";
 
     /// <summary>The feed to use: none when checks are off, the user's own feed if set, otherwise the official one.</summary>
     public static string EffectiveFeedUrl(AppSettings? settings)

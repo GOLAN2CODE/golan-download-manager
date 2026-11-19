@@ -666,7 +666,7 @@ public sealed partial class DownloadManager
         {
             var warn = Loc.T("resolver.fallback_warning");
             item.Stage = warn;
-            Log.Write($"resolver fallback for {item.Url}: {warn}");
+            Log.Write($"resolver fallback for {Log.StripUserInfo(item.Url)}: {warn}");
             return false;
         }
 
@@ -681,7 +681,11 @@ public sealed partial class DownloadManager
             item.TotalSize = resolved.Size;
         if (resolved.Headers.TryGetValue("Cookie", out var resolverCookie)
             && !string.IsNullOrWhiteSpace(resolverCookie)
-            && string.IsNullOrEmpty(item.Cookies))
+            && string.IsNullOrEmpty(item.Cookies)
+            // The sharing site's own token goes back to that site only, never to another host its answer points at.
+            && Uri.TryCreate(item.Url, UriKind.Absolute, out var sharingUri)
+            && (resolved.Direct.Host.Equals(sharingUri.Host, StringComparison.OrdinalIgnoreCase)
+                || resolved.Direct.Host.EndsWith("." + string.Join('.', sharingUri.Host.Split('.').TakeLast(2)), StringComparison.OrdinalIgnoreCase)))
         {
             item.Cookies = resolverCookie;
             item.CookieHost = resolved.Direct.Host;
@@ -746,7 +750,8 @@ public sealed partial class DownloadManager
 
             item.Status = DownloadStatus.Completed;
             item.CompletedAt = DateTime.Now;
-            item.LastResult = Loc.T("core.status.completed");
+            // A fingerprint that did not match stays written on the item: "completed" must not paper over it.
+            item.LastResult = item.HashState == HashVerifyState.Mismatch ? Loc.T("hash.status.mismatch") : Loc.T("core.status.completed");
             if (!item.RememberSpeedLimit) item.SpeedLimitKB = 0;
             item.Cookies = ""; // never keep session cookies after the file is done
             if (!string.IsNullOrEmpty(item.MediaCookieFile)) { MediaDownloader.TryDelete(item.MediaCookieFile); item.MediaCookieFile = ""; }
@@ -1044,6 +1049,7 @@ public sealed partial class DownloadManager
         }
         catch (Exception ex) { Log.Write("quota load failed: " + ex.Message); }
 
+        bool loadFailed = false;
         try
         {
             if (File.Exists(AppPaths.DownloadsFile))
@@ -1073,9 +1079,11 @@ public sealed partial class DownloadManager
             Log.Write("downloads load failed: " + ex.Message);
             try { File.Copy(AppPaths.DownloadsFile, AppPaths.DownloadsFile + ".bad", true); }
             catch (IOException) { /* best-effort corrupt downloads.json backup */ }
+            loadFailed = true;
         }
         CheckQuota(DateTime.Now, 0);
-        PurgeOrphanCookieFiles();
+        // With the list unreadable every cookie file would look unused: none is deleted on such a start.
+        if (!loadFailed) PurgeOrphanCookieFiles();
     }
 
     static bool IsSafeLoadedSaveDir(string? dir)
@@ -1160,7 +1168,7 @@ public sealed partial class DownloadManager
                     lock (item.SegLock) node = JsonSerializer.SerializeToNode(item, Json.Options);
                     array.Add(node);
                 }
-                Json.WriteAtomic(AppPaths.DownloadsFile, array.ToJsonString(Json.Options));
+                Json.WriteAtomic(AppPaths.DownloadsFile, array.ToJsonString(Json.Options), flushToDisk: true);
                 try
                 {
                     Json.WriteAtomic(QuotaFile, JsonSerializer.Serialize(qlist, Json.Options));

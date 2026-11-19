@@ -85,6 +85,8 @@ public static class BrowserProfiles
             {
                 if (node is not JsonObject info || dir.Length == 0 || dir.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) continue;
                 if (info["is_ephemeral"] is JsonValue eph && eph.TryGetValue<bool>(out var e) && e) continue;
+                // The browser's own guest and profile-picker folders are not places a person browses in.
+                if (dir.Equals("System Profile", StringComparison.OrdinalIgnoreCase) || dir.Equals("Guest Profile", StringComparison.OrdinalIgnoreCase)) continue;
                 var name = Str(info["name"]);
                 if (name.Length == 0) name = Str(info["gaia_name"]);
                 if (name.Length == 0) name = dir;
@@ -115,7 +117,7 @@ public static class BrowserProfiles
         var secure = ReadJson(Path.Combine(profilePath, "Secure Preferences")) as JsonObject;
         bool devMode = Bool(prefs?["extensions"]?["ui"]?["developer_mode"]) || Bool(secure?["extensions"]?["ui"]?["developer_mode"]);
 
-        bool installed = false, disabled = false, otherFolder = false;
+        bool installed = false, disabled = false, otherFolder = false, exactSeen = false;
         string? version = null;
         var wanted = NormalizeDir(extensionDir);
         foreach (var settings in new[] { prefs?["extensions"]?["settings"], secure?["extensions"]?["settings"] })
@@ -129,14 +131,17 @@ public static class BrowserProfiles
                             || (wanted.Length > 0 && path.Length > 0 && Path.IsPathRooted(path) && NormalizeDir(path) == wanted);
                 if (!ours) continue;
                 installed = true;
+                // The entry under our own ID decides, and the later file (Secure Preferences) is the one the browser
+                // trusts: a stale copy of the entry must not leave "turned off" or "other folder" stuck on.
+                bool exact = string.Equals(id, extensionId, StringComparison.Ordinal);
+                if (exactSeen && !exact) continue;
+                exactSeen |= exact;
                 // Only an unpacked extension has an absolute path here (a store install keeps a relative one).
-                if (wanted.Length > 0 && path.Length > 0 && Path.IsPathRooted(path) && NormalizeDir(path) != wanted)
-                    otherFolder = true;
+                otherFolder = wanted.Length > 0 && path.Length > 0 && Path.IsPathRooted(path) && NormalizeDir(path) != wanted;
                 // state 0 / non-empty disable_reasons = turned off in chrome://extensions
-                if ((ext["state"] is JsonValue st && st.TryGetValue<int>(out var s) && s == 0)
+                disabled = (ext["state"] is JsonValue st && st.TryGetValue<int>(out var s) && s == 0)
                     || (ext["disable_reasons"] is JsonArray reasons && reasons.Count > 0)
-                    || (ext["disable_reasons"] is JsonValue dr && dr.TryGetValue<int>(out var r) && r != 0))
-                    disabled = true;
+                    || (ext["disable_reasons"] is JsonValue dr && dr.TryGetValue<int>(out var r) && r != 0);
                 var mfVer = Str(ext["manifest"]?["version"]);
                 if (mfVer.Length == 0) mfVer = Str(ext["version"]);
                 if (mfVer.Length > 0) version = mfVer;
@@ -203,17 +208,23 @@ public static class BrowserProfiles
 
     static JsonNode? ReadJson(string path)
     {
-        try
+        // A running browser replaces these files by swapping in a new copy; for an instant the open fails or the
+        // text is half-written. A couple of short retries keep a profile from vanishing off the list for that.
+        for (int attempt = 0; ; attempt++)
         {
-            if (!File.Exists(path)) return null;
-            // The browser keeps these files open while it runs: share everything, read once, never lock.
-            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (fs.Length > MaxJsonBytes) return null;
-            return JsonNode.Parse(fs, documentOptions: new JsonDocumentOptions { AllowTrailingCommas = true, MaxDepth = 256 });
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return null;
+            try
+            {
+                if (!File.Exists(path)) return null;
+                // The browser keeps these files open while it runs: share everything, read once, never lock.
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                if (fs.Length > MaxJsonBytes) return null;
+                return JsonNode.Parse(fs, documentOptions: new JsonDocumentOptions { AllowTrailingCommas = true, MaxDepth = 256 });
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                if (attempt >= 2) return null;
+                Thread.Sleep(60);
+            }
         }
     }
 

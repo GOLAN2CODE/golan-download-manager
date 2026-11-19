@@ -3,6 +3,8 @@
   "hash.status.verified": "Verified ✓",
   "hash.status.mismatch": "Mismatch ✗",
   "hash.status.error": "Hash calculation failed: {0}",
+  "hash.notify.noHashTitle": "No fingerprint to compare with",
+  "hash.notify.noHash": "No published fingerprint was found for “{0}” to compare it with. You can compute its fingerprint from “Compute hash” and compare it yourself.",
   "hash.notify.verified": "Integrity of \"{0}\" verified successfully (Verified ✓).",
   "hash.notify.mismatch": "Warning: Checksum of \"{0}\" does not match expected hash (Mismatch ✗). File was kept.",
   "hash.menu.compute": "Calculate Hash",

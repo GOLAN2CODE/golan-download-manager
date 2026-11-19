@@ -11,8 +11,8 @@
 
 ## الإبلاغ عن ثغرة · Reporting a vulnerability
 
-لا تفتح مشكلة علنية للثغرات. استخدم **[الإبلاغ الخاص عن الثغرات](https://github.com/dark9guna/golan-download-manager/security/advisories/new)** في غيت هاب، مع خطوات إعادة المشكلة ونسخة جولان ونسخة ويندوز.
-Please do not open a public issue. Use **[private vulnerability reporting](https://github.com/dark9guna/golan-download-manager/security/advisories/new)** with steps to reproduce, your Golan version and Windows version.
+لا تفتح مشكلة علنية للثغرات. استخدم **[الإبلاغ الخاص عن الثغرات](https://github.com/GOLAN2CODE/golan-download-manager/security/advisories/new)** في غيت هاب، مع خطوات إعادة المشكلة ونسخة جولان ونسخة ويندوز.
+Please do not open a public issue. Use **[private vulnerability reporting](https://github.com/GOLAN2CODE/golan-download-manager/security/advisories/new)** with steps to reproduce, your Golan version and Windows version.
 
 سنرد خلال ٧ أيام، ونصدر الإصلاح ثم ننشر التفاصيل بعد توفره للمستخدمين.
 We aim to answer within 7 days, ship a fix, and publish details once users can update.

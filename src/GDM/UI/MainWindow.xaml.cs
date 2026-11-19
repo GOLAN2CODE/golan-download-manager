@@ -287,7 +287,12 @@ public partial class MainWindow : Window
 
     void Grid_KeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Delete) { Delete_Click(sender, e); e.Handled = true; }
+        if (e.Key == Key.Delete)
+        {
+            // Shift+Delete removes the file too, as it does everywhere in Windows (it always asks first).
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) DeleteWithFile_Click(sender, e); else Delete_Click(sender, e);
+            e.Handled = true;
+        }
         else if (e.Key == Key.Enter && Selected.FirstOrDefault() is { } item)
         {
             if (item.Status == DownloadStatus.Completed) OpenFile(item); else App.Instance.ShowProgress(item);
@@ -341,9 +346,9 @@ public partial class MainWindow : Window
             if (_manager.ActiveCount > 0) App.Instance.Notify(Loc.T("main.notify.stillRunningTitle"), Loc.T("main.notify.stillRunningBody"));
             return;
         }
-        CleanupHooks();
+        // The window stays if the user decides not to leave while downloads run.
         e.Cancel = true;
-        App.Instance.ExitApp();
+        App.Instance.RequestExit(this);
     }
 }
 

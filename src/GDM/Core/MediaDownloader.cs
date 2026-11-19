@@ -608,7 +608,8 @@ public static class MediaDownloader
 
     static List<string> CommonArgs(string userAgent, string referrer, string? materializedCookieFile, string? targetUrl = null)
     {
-        var args = new List<string> { "--no-warnings", "--no-color", "--encoding", "utf-8" };
+        // --ignore-config: a yt-dlp settings file lying on the computer must not add options (it can run programs).
+        var args = new List<string> { "--ignore-config", "--no-warnings", "--no-color", "--encoding", "utf-8" };
         if (ProxyForTarget(targetUrl) is { } proxy)
         {
             args.Add("--proxy");

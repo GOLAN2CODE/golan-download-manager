@@ -1,5 +1,17 @@
 # سجل التغييرات · Changelog
 
+## 2.6.2 — 2026-11-19
+- عنوان التحديث التلقائي صار يشير إلى الحساب الرسمي الحالي GOLAN2CODE · The automatic update address now points at the current official account, GOLAN2CODE.
+- لا يُعتبر التنزيل مكتملًا إذا كان الملف المؤقت أقصر من الحجم المعلن، ولا تُحذف ملفات الكوكيز إذا تعذّرت قراءة قائمة التنزيلات · A download is not finished when its temporary file is shorter than the declared size, and cookie files are kept when the download list cannot be read.
+- قائمة التنزيلات والإعدادات تُكتبان على القرص فعليًا قبل الاستبدال، والإعدادات التالفة تُحفظ نسخة منها قبل العودة للافتراضي · The download list and settings are flushed to disk before the swap, and a damaged settings file is kept as a copy before defaults are used.
+- فحص المساحة الحرة يشمل مجلد الحفظ عندما يكون المجلد المؤقت على قرص آخر، وحد الملفات مجهولة الحجم صار 8 غيغابايت · The free-space check also covers the save folder when the temporary folder is on another drive, and files of unknown size may reach 8 GB.
+- إيقاف المجدول يعمل حتى بعد مرور ساعة على موعده، وأداة الفيديو تتجاهل ملفات إعداد خارجية · The scheduler stop time works even more than an hour late, and the video tool ignores outside configuration files.
+- الكوكيز لا تُرسل إلى خادم ملفات لا يتبع موقع المشاركة نفسه، وعناوين السجل تُكتب بلا اسم مستخدم وكلمة سر · Cookies are not sent to a file server that is not the sharing site's own, and addresses in the log carry no user name or password.
+- سؤال تأكيد قبل الخروج أثناء وجود تنزيلات جارية وقبل إعادة التنزيل، وتغيير اللغة يعيد تشغيل البرنامج، و‏Shift+Delete يحذف مع الملف · A confirmation before exiting with active downloads and before re-downloading, a language change restarts the app, and Shift+Delete deletes with the file.
+- التثبيت التلقائي للإضافة: فايرفوكس يستلم ملف الإضافة المضغوط، لا يُكتب في نافذة ملفات كانت مفتوحة مسبقًا، لا تُرسل اختصارات أثناء ضغط المستخدم على Shift أو Alt أو Win، وتجاهل الملفات الشخصية للضيف والنظام · Extension auto-install: Firefox gets the packed add-on, a file dialog that was already open is never typed into, no shortcut is sent while the user holds Shift, Alt or Win, and guest and system profiles are skipped.
+- عند منع المؤسسة للإضافات لا تُعرض خطوات يدوية لن تنجح، وإزالة التثبيت تحذف مفاتيح Yandex وComet أيضًا · When an organisation blocks extensions no useless manual steps are shown, and uninstall also removes the Yandex and Comet keys.
+- إضافة المتصفح: المواقع المستثناة تُحترم حسب الصفحة المصدر، لا التقاط لتنزيلات النافذة الخاصة أو تنزيلات إضافات أخرى، لا حذف لتنزيل اكتمل في المتصفح، وتعيد تحميل نفسها مرة واحدة عند تحديث جولان · Browser extension: excluded sites are honoured by the source page, private-window downloads and other extensions' downloads are not captured, a download the browser finished is never erased, and it reloads itself once when Golan is updated.
+
 ## 2.6.1 — 2026-11-19
 - التثبيت التلقائي لإضافة المتصفح صار يعمل فعلًا: يطلب من المتصفح كشف صفحة الإضافات، ويفتحها في نافذة خاصة، ولا يلمس أي نافذة أخرى · The automatic extension installer now really completes: it asks the browser to expose the extensions page, opens it in a window of its own, and never touches another window.
 - يبحث أولًا عن المتصفحات وملفاتها الشخصية ويعرضها بحالتها، ثم يثبّت الإضافة فقط في الملفات التي تختارها · It first lists every browser profile with its state, then installs only into the profiles you tick.
